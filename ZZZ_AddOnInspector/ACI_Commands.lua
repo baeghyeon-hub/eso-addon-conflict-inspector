@@ -22,6 +22,8 @@ function ACI.RegisterCommands()
             ACI.PrintOrphans()
         elseif args == "missing" then
             ACI.PrintMissingDeps()
+        elseif args == "ood" then
+            ACI.PrintOOD()
         elseif args == "hot" then
             ACI.PrintHotPaths()
         elseif args == "health" then
@@ -422,6 +424,63 @@ function ACI.PrintHotPaths()
 end
 
 ----------------------------------------------------------------------
+-- /aci ood — out-of-date breakdown by category
+----------------------------------------------------------------------
+function ACI.PrintOOD()
+    local ood = ACI.ClassifyOOD()
+    if not ood then
+        d("[ACI] No metadata.")
+        return
+    end
+
+    local pct = math.floor(ood.oodRatio * 100 + 0.5)
+
+    d("--------------------------------------------")
+    d("[ACI] Out-of-Date Breakdown")
+    d(string.format("[ACI] %d/%d top-level (%d%%)", ood.topLevelOOD, ood.topLevelEnabled, pct))
+    d("--------------------------------------------")
+
+    -- Standalone addons — user action needed
+    if #ood.standalone > 0 then
+        d("[ACI] |cFFFF00Standalone addons (" .. #ood.standalone .. ")|r — update recommended:")
+        for _, name in ipairs(ood.standalone) do
+            d("[ACI]   " .. name)
+        end
+    else
+        d("[ACI] |c00FF00No standalone addons out-of-date|r")
+    end
+
+    d("[ACI]")
+
+    -- Libraries — author abandoned, usually harmless
+    if #ood.libOnly > 0 then
+        d("[ACI] |cCCCCCCLibraries (" .. #ood.libOnly .. ")|r — author outdated, usually harmless:")
+        for _, lib in ipairs(ood.libOnly) do
+            local depStr = lib.dependents > 0
+                and (" |c888888(" .. lib.dependents .. " dependents)|r")
+                or ""
+            d("[ACI]   " .. lib.name .. depStr)
+        end
+    else
+        d("[ACI] |c00FF00No libraries out-of-date|r")
+    end
+
+    d("[ACI]")
+
+    -- Embedded — bundled, ignore
+    if #ood.embedded > 0 then
+        d("[ACI] |c666666Embedded (" .. #ood.embedded .. ")|r — bundled sub-addons, ignore:")
+        for _, name in ipairs(ood.embedded) do
+            d("[ACI]   " .. name)
+        end
+    else
+        d("[ACI] |c00FF00No embedded sub-addons out-of-date|r")
+    end
+
+    d("--------------------------------------------")
+end
+
+----------------------------------------------------------------------
 -- /aci health — overall environment diagnosis (traffic light)
 ----------------------------------------------------------------------
 function ACI.PrintHealth()
@@ -439,27 +498,46 @@ function ACI.PrintHealth()
     d("[ACI] " .. color .. "● " .. label .. "|r")
     d("--------------------------------------------")
 
-    -- OOD detail (ratio-based, excluding embedded)
-    local pct = math.floor(s.oodRatio * 100 + 0.5)
-    d(string.format("[ACI] Out-of-date: %d/%d top-level (%d%%)",
-        s.topLevelOOD, s.topLevelEnabled, pct))
-    if s.embeddedCount > 0 then
-        d(string.format("[ACI]   (%d embedded sub-addons excluded)", s.embeddedCount))
-    end
-    d(string.format("[ACI]   Libraries %d | Addons %d", s.libOOD, s.addonOOD))
+    -- OOD segmented breakdown
+    local ood = h.ood
+    if ood then
+        local pct = math.floor(ood.oodRatio * 100 + 0.5)
+        d(string.format("[ACI] Out-of-date: %d/%d top-level (%d%%)",
+            ood.topLevelOOD, ood.topLevelEnabled, pct))
 
-    -- Ratio-based context
-    local ctx
-    if s.oodRatio > 0.8 then
-        ctx = "Major patch or long-neglected"
-    elseif s.oodRatio > 0.5 then
-        ctx = "Normal after patch (1-2 months)"
-    elseif s.oodRatio > 0.2 then
-        ctx = "Normal"
-    else
-        ctx = "Well maintained"
+        -- Ignorable section
+        local ignorable = #ood.libOnly + #ood.embedded
+        if ignorable > 0 then
+            d(string.format("[ACI]   |cCCCCCCIgnorable: %d libraries + %d embedded|r",
+                #ood.libOnly, #ood.embedded))
+        end
+
+        -- Attention section: standalone addons
+        if #ood.standalone > 0 then
+            d(string.format("[ACI]   |cFFFF00Attention: %d standalone addon(s)|r", #ood.standalone))
+            -- Show up to 5 names inline
+            local names = {}
+            for i = 1, math.min(5, #ood.standalone) do
+                table.insert(names, ood.standalone[i])
+            end
+            local suffix = #ood.standalone > 5 and (" +" .. (#ood.standalone - 5) .. " more") or ""
+            d("[ACI]     " .. table.concat(names, ", ") .. suffix)
+        end
+
+        -- Ratio-based context
+        local ctx
+        if ood.oodRatio > 0.8 then
+            ctx = "Major patch or long-neglected"
+        elseif ood.oodRatio > 0.5 then
+            ctx = "Normal after patch (1-2 months)"
+        elseif ood.oodRatio > 0.2 then
+            ctx = "Normal"
+        else
+            ctx = "Well maintained"
+        end
+        d("[ACI]   -> " .. ctx)
+        d("[ACI]   Full breakdown: /aci ood")
     end
-    d("[ACI]   -> " .. ctx)
 
     -- Other issues (SV conflicts, orphans, missing deps, etc.)
     local otherIssues = {}
@@ -478,9 +556,22 @@ function ACI.PrintHealth()
         end
     end
 
+    -- Safe-to-delete: orphan AND out-of-date
+    local safeToDelete = ACI.FindSafeToDelete()
+    if #safeToDelete > 0 then
+        d("[ACI]")
+        d("[ACI] |cFF6600● Safe to delete (" .. #safeToDelete .. ")|r — unused AND outdated:")
+        local names = {}
+        for _, s in ipairs(safeToDelete) do
+            table.insert(names, s.name)
+        end
+        d("[ACI]   " .. table.concat(names, ", "))
+        d("[ACI]   |cCCCCCC^ No dependents, no updates. Zero-risk removal.|r")
+    end
+
     d("[ACI]")
     d("[ACI] Events: " .. tostring(ACI.EventCountExcludingSelf()) .. ", hot paths " .. tostring(s.hotPaths))
-    d("[ACI] Details: /aci orphans | /aci missing | /aci hot | /aci sv")
+    d("[ACI] Details: /aci orphans | /aci missing | /aci ood | /aci sv")
     d("--------------------------------------------")
 end
 
@@ -578,6 +669,7 @@ function ACI.PrintHelp()
     d("[ACI]   /aci init     init time estimation (top 10)")
     d("[ACI]   /aci orphans  unused libraries + de-facto")
     d("[ACI]   /aci missing  missing dependencies + hints")
+    d("[ACI]   /aci ood      out-of-date breakdown")
     d("[ACI]   /aci hot      event hot paths")
     d("[ACI]   /aci health   environment diagnosis")
     d("[ACI]   /aci sv       SV registrations + conflicts")

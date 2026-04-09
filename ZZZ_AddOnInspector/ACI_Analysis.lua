@@ -375,8 +375,93 @@ function ACI.FindEventHotPaths(threshold)
 end
 
 ----------------------------------------------------------------------
+-- Safe-to-delete libraries: orphan AND out-of-date (zero-risk removal)
+----------------------------------------------------------------------
+function ACI.FindSafeToDelete()
+    local orphans = ACI.FindOrphanLibraries()
+    local meta = ACI_SavedVars and ACI_SavedVars.metadata
+    if not meta or not meta.addons then return {} end
+
+    local orphanSet = {}
+    for _, o in ipairs(orphans) do
+        orphanSet[o.name] = true
+    end
+
+    ACI.TagEmbeddedAddons()
+
+    local result = {}
+    for _, a in ipairs(meta.addons) do
+        if a.enabled and a.isLibrary and a.isOutOfDate
+            and not a.isEmbedded and orphanSet[a.name]
+        then
+            table.insert(result, { name = a.name, version = a.version })
+        end
+    end
+    return result
+end
+
+----------------------------------------------------------------------
+-- OOD segmentation — classify out-of-date addons into actionable groups
+-- Returns { standalone[], libOnly[], embedded[], topLevelEnabled, ... }
+----------------------------------------------------------------------
+function ACI.ClassifyOOD()
+    local meta = ACI_SavedVars and ACI_SavedVars.metadata
+    if not meta or not meta.addons then return nil end
+
+    ACI.TagEmbeddedAddons()
+
+    local depIndex = ACI.BuildDependencyIndex()
+
+    local standalone = {}   -- non-library OOD: user should update
+    local libOnly    = {}   -- library OOD: author abandoned, usually harmless
+    local embedded   = {}   -- bundled sub-addon: ignore, follows parent
+
+    local topLevelEnabled = 0
+    local topLevelOOD = 0
+    local embeddedCount = 0
+
+    for _, a in ipairs(meta.addons) do
+        if a.enabled then
+            if a.isEmbedded then
+                embeddedCount = embeddedCount + 1
+                if a.isOutOfDate then
+                    table.insert(embedded, a.name)
+                end
+            else
+                topLevelEnabled = topLevelEnabled + 1
+                if a.isOutOfDate then
+                    topLevelOOD = topLevelOOD + 1
+                    if a.isLibrary then
+                        -- Count how many enabled addons depend on this lib
+                        local rev = depIndex and depIndex.reverse[a.name] or {}
+                        table.insert(libOnly, { name = a.name, dependents = #rev })
+                    else
+                        table.insert(standalone, a.name)
+                    end
+                end
+            end
+        end
+    end
+
+    -- Sort libOnly by dependent count (most-depended first)
+    table.sort(libOnly, function(x, y) return x.dependents > y.dependents end)
+
+    local oodRatio = topLevelOOD / math.max(1, topLevelEnabled)
+
+    return {
+        standalone      = standalone,
+        libOnly         = libOnly,
+        embedded        = embedded,
+        topLevelEnabled = topLevelEnabled,
+        topLevelOOD     = topLevelOOD,
+        embeddedCount   = embeddedCount,
+        oodRatio        = oodRatio,
+    }
+end
+
+----------------------------------------------------------------------
 -- Health Score — overall environment diagnosis
--- Excludes embedded sub-addons, ratio-based thresholds
+-- Uses ClassifyOOD for segmented OOD reporting
 ----------------------------------------------------------------------
 function ACI.ComputeHealthScore()
     local meta = ACI_SavedVars and ACI_SavedVars.metadata
@@ -385,36 +470,12 @@ function ACI.ComputeHealthScore()
     -- Recalculate embedded tags from stored rootPath (pure Lua string)
     ACI.TagEmbeddedAddons()
 
+    local ood         = ACI.ClassifyOOD()
     local orphans     = ACI.FindOrphanLibraries()
     local missingDeps = ACI.FindMissingDependencies()
     local deFacto     = ACI.FindDeFactoLibraries(3)
     local hotPaths    = ACI.FindEventHotPaths(3)
     local svConflicts = ACI.DetectSVConflicts()
-
-    -- OOD counts excluding embedded sub-addons
-    local topLevelEnabled, topLevelOOD = 0, 0
-    local libOOD, addonOOD = 0, 0
-    local embeddedCount = 0
-
-    for _, a in ipairs(meta.addons) do
-        if a.enabled then
-            if a.isEmbedded then
-                embeddedCount = embeddedCount + 1
-            else
-                topLevelEnabled = topLevelEnabled + 1
-                if a.isOutOfDate then
-                    topLevelOOD = topLevelOOD + 1
-                    if a.isLibrary then
-                        libOOD = libOOD + 1
-                    else
-                        addonOOD = addonOOD + 1
-                    end
-                end
-            end
-        end
-    end
-
-    local oodRatio = topLevelOOD / math.max(1, topLevelEnabled)
 
     local issues = {}
 
@@ -423,16 +484,19 @@ function ACI.ComputeHealthScore()
         table.insert(issues, { level = "red", msg = #svConflicts .. " SV conflict(s)" })
     end
 
-    -- OOD — ratio-based severity
-    if oodRatio > 0.8 then
-        table.insert(issues, { level = "red",
-            msg = topLevelOOD .. "/" .. topLevelEnabled .. " out-of-date (" .. math.floor(oodRatio * 100 + 0.5) .. "%)" })
-    elseif oodRatio > 0.5 then
-        table.insert(issues, { level = "yellow",
-            msg = topLevelOOD .. "/" .. topLevelEnabled .. " out-of-date (" .. math.floor(oodRatio * 100 + 0.5) .. "%)" })
-    elseif topLevelOOD > 0 then
-        table.insert(issues, { level = "info",
-            msg = topLevelOOD .. "/" .. topLevelEnabled .. " out-of-date (" .. math.floor(oodRatio * 100 + 0.5) .. "%)" })
+    -- OOD — ratio-based severity (only standalone count matters for user action)
+    if ood then
+        local pct = math.floor(ood.oodRatio * 100 + 0.5)
+        if ood.oodRatio > 0.8 then
+            table.insert(issues, { level = "red",
+                msg = ood.topLevelOOD .. "/" .. ood.topLevelEnabled .. " out-of-date (" .. pct .. "%)" })
+        elseif ood.oodRatio > 0.5 then
+            table.insert(issues, { level = "yellow",
+                msg = ood.topLevelOOD .. "/" .. ood.topLevelEnabled .. " out-of-date (" .. pct .. "%)" })
+        elseif ood.topLevelOOD > 0 then
+            table.insert(issues, { level = "info",
+                msg = ood.topLevelOOD .. "/" .. ood.topLevelEnabled .. " out-of-date (" .. pct .. "%)" })
+        end
     end
 
     -- Missing dependencies — always notable
@@ -465,13 +529,14 @@ function ACI.ComputeHealthScore()
     return {
         level  = level,
         issues = issues,
+        ood    = ood,
         stats  = {
-            topLevelEnabled = topLevelEnabled,
-            topLevelOOD     = topLevelOOD,
-            libOOD          = libOOD,
-            addonOOD        = addonOOD,
-            embeddedCount   = embeddedCount,
-            oodRatio        = oodRatio,
+            topLevelEnabled = ood and ood.topLevelEnabled or 0,
+            topLevelOOD     = ood and ood.topLevelOOD or 0,
+            libOOD          = ood and #ood.libOnly or 0,
+            addonOOD        = ood and #ood.standalone or 0,
+            embeddedCount   = ood and ood.embeddedCount or 0,
+            oodRatio        = ood and ood.oodRatio or 0,
             orphans         = #orphans,
             missingDeps     = #missingDeps,
             deFacto         = #deFacto,
