@@ -1,5 +1,5 @@
 ----------------------------------------------------------------------
--- ACI_Inventory.lua — GetAddOnManager 기반 정적 메타데이터 수집
+-- ACI_Inventory.lua — static metadata collection via GetAddOnManager
 ----------------------------------------------------------------------
 
 function ACI.CollectMetadata()
@@ -52,15 +52,15 @@ function ACI.CollectMetadata()
             isOutOfDate    = isOutOfDate,
             isLibrary      = isLibrary,
             version        = version,
-            rootPath       = rootPath,  -- 테이블 대입 시 순수 Lua string으로 변환됨
-            loadOrderIndex = ACI.loadOrderMap[name],  -- EVENT_ADD_ON_LOADED 순서
+            rootPath       = rootPath,  -- table assignment converts to pure Lua string
+            loadOrderIndex = ACI.loadOrderMap[name],  -- from EVENT_ADD_ON_LOADED order
             numDeps        = numDeps,
             deps           = deps,
             svDiskMB       = svDiskMB,
         })
     end
 
-    -- 현재 게임 API 버전 기록
+    -- Record current game API version
     local currentAPI = GetAPIVersion and GetAPIVersion() or nil
 
     return {

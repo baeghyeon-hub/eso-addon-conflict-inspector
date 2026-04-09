@@ -1,11 +1,68 @@
 ----------------------------------------------------------------------
--- ACI_Analysis.lua — clustering, 집계, 충돌 감지
+-- ACI_Analysis.lua — clustering, aggregation, conflict detection
 ----------------------------------------------------------------------
 
 ----------------------------------------------------------------------
--- Embedded 서브애드온 판정
--- 관심사 분리: Inventory = 수집, Analysis = 분석.
--- 테이블에 저장된 rootPath로 분석 단계에서 판정한다.
+-- String matching utilities (typo/missing dep detection)
+----------------------------------------------------------------------
+
+-- Strip version suffixes: "LibFoo-2.0" -> "LibFoo", "LibBar-r17" -> "LibBar"
+local function StripVersionSuffix(name)
+    return name:gsub("%-[%d%.]+$", ""):gsub("%-r%d+$", "")
+end
+
+-- Levenshtein edit distance (pure Lua, early-exit for large gaps)
+local function Levenshtein(a, b)
+    if a == b then return 0 end
+    local la, lb = #a, #b
+    if la == 0 then return lb end
+    if lb == 0 then return la end
+    if math.abs(la - lb) > 2 then return 99 end
+
+    local prev = {}
+    for j = 0, lb do prev[j] = j end
+
+    for i = 1, la do
+        local curr = { [0] = i }
+        for j = 1, lb do
+            local cost = (a:sub(i, i) == b:sub(j, j)) and 0 or 1
+            curr[j] = math.min(
+                prev[j] + 1,
+                curr[j - 1] + 1,
+                prev[j - 1] + cost
+            )
+        end
+        prev = curr
+    end
+    return prev[lb]
+end
+
+-- Find closest match from candidates. Returns (name, distance) or nil.
+-- minLen: skip short names to avoid false positives (default 8)
+-- maxDist: accept only distances below this (default 3, i.e. <=2)
+local function FindClosestMatch(target, candidates, minLen, maxDist)
+    minLen = minLen or 8
+    maxDist = maxDist or 3
+    if #target < minLen then return nil end
+
+    local best, bestDist = nil, maxDist
+    local tLower = target:lower()
+    for _, c in ipairs(candidates) do
+        if #c >= minLen then
+            local dist = Levenshtein(tLower, c:lower())
+            if dist < bestDist then
+                bestDist = dist
+                best = c
+            end
+        end
+    end
+    return best, bestDist
+end
+
+----------------------------------------------------------------------
+-- Embedded sub-addon detection
+-- Separation of concerns: Inventory = collection, Analysis = analysis.
+-- Uses rootPath stored in metadata table for analysis-phase tagging.
 ----------------------------------------------------------------------
 local function IsEmbeddedPath(rootPath)
     if not rootPath then return false end
@@ -16,7 +73,7 @@ local function IsEmbeddedPath(rootPath)
     return firstSlash ~= nil and firstSlash < #afterAddons
 end
 
--- metadata.addons 배열에 isEmbedded 필드를 일괄 태깅
+-- Batch-tag isEmbedded field on metadata.addons entries
 function ACI.TagEmbeddedAddons()
     local meta = ACI_SavedVars and ACI_SavedVars.metadata
     if not meta or not meta.addons then return end
@@ -26,7 +83,7 @@ function ACI.TagEmbeddedAddons()
 end
 
 ----------------------------------------------------------------------
--- ACI 제외 이벤트 카운트
+-- Event count excluding ACI's own registrations
 ----------------------------------------------------------------------
 function ACI.EventCountExcludingSelf()
     local count = 0
@@ -40,12 +97,12 @@ end
 
 ----------------------------------------------------------------------
 -- Namespace Clustering
--- 숫자 접미사 제거로 그룹핑: LibCombat47 → LibCombat
+-- Groups by stripping numeric suffixes: LibCombat47 -> LibCombat
 ----------------------------------------------------------------------
 function ACI.ClusterNamespaces()
     local clusters = {}
     for _, entry in ipairs(ACI.eventLog) do
-        -- ACI 자신의 등록은 제외
+        -- Exclude ACI's own registrations
         if not ACI.IsSelfNamespace(entry.namespace) then
             local base = entry.namespace:match("^(.-)%d+$") or entry.namespace
             if not clusters[base] then
@@ -60,7 +117,7 @@ function ACI.ClusterNamespaces()
     return clusters
 end
 
--- 클러스터를 등록 수 내림차순 정렬 배열로 변환
+-- Convert clusters to sorted array (descending by registration count)
 function ACI.SortedClusters(clusters)
     clusters = clusters or ACI.ClusterNamespaces()
     local sorted = {}
@@ -77,8 +134,8 @@ function ACI.SortedClusters(clusters)
 end
 
 ----------------------------------------------------------------------
--- SV 충돌 감지
--- 같은 (svTable::namespace) 쌍에 다른 caller가 있으면 충돌
+-- SV conflict detection
+-- Same (svTable::namespace) pair with different callers = conflict
 ----------------------------------------------------------------------
 function ACI.DetectSVConflicts()
     local conflicts = {}
@@ -103,16 +160,16 @@ function ACI.DetectSVConflicts()
 end
 
 ----------------------------------------------------------------------
--- 의존성 역방향 인덱스
--- forward: addon → [deps it needs]    (이미 metadata.addons[].deps에 있음)
--- reverse: library → [addons that use it]
+-- Dependency index (forward + reverse)
+-- forward: addon -> [deps it needs]    (already in metadata.addons[].deps)
+-- reverse: library -> [addons that use it]
 ----------------------------------------------------------------------
 function ACI.BuildDependencyIndex()
     local meta = ACI_SavedVars and ACI_SavedVars.metadata
     if not meta or not meta.addons then return nil end
 
     local forward = {}   -- name → { depName[] }
-    local reverse = {}   -- depName → { addonName[] }  (enabled 애드온만)
+    local reverse = {}   -- depName -> { addonName[] }  (enabled addons only)
     local byName = {}    -- name → addon entry
 
     for _, addon in ipairs(meta.addons) do
@@ -120,7 +177,7 @@ function ACI.BuildDependencyIndex()
         forward[addon.name] = {}
         for _, dep in ipairs(addon.deps) do
             table.insert(forward[addon.name], dep.name)
-            -- reverse: 활성 애드온의 의존성만 집계 (고아 탐지 정확도)
+            -- reverse: only count enabled addons' deps (orphan detection accuracy)
             if addon.enabled then
                 if not reverse[dep.name] then
                     reverse[dep.name] = {}
@@ -138,16 +195,23 @@ function ACI.BuildDependencyIndex()
 end
 
 ----------------------------------------------------------------------
--- 고아 라이브러리: isLibrary=true인데 활성 애드온 중 아무도 안 쓰는 것
+-- Orphan libraries: isLibrary=true but no enabled addon depends on them.
+-- 3-tier hint matching: case -> version-stripped -> levenshtein
 ----------------------------------------------------------------------
 function ACI.FindOrphanLibraries()
     local depIndex = ACI.BuildDependencyIndex()
     if not depIndex then return {} end
 
-    -- 모든 deps 이름을 lowercase → original로 매핑 (오타 탐지용)
+    -- Map all dep names: lowercase -> original (for case-mismatch detection)
     local allDepNames = {}
     for depName in pairs(depIndex.reverse) do
         allDepNames[depName:lower()] = depName
+    end
+
+    -- Collect all dep names for hint matching
+    local allDepList = {}
+    for depName in pairs(depIndex.reverse) do
+        table.insert(allDepList, depName)
     end
 
     local meta = ACI_SavedVars.metadata
@@ -156,13 +220,35 @@ function ACI.FindOrphanLibraries()
         if a.enabled and a.isLibrary and not a.isEmbedded then
             local users = depIndex.reverse[a.name]
             if not users or #users == 0 then
-                -- 대소문자 오타 탐지: 같은 lowercase인데 다른 이름이 deps에 있으면 오타
-                local typoHint = nil
+                -- 3-tier hint: case match -> version-stripped -> levenshtein
+                local hint = nil
                 local lower = a.name:lower()
+
+                -- Tier 1: exact case-insensitive match against dep names
                 if allDepNames[lower] and allDepNames[lower] ~= a.name then
-                    typoHint = allDepNames[lower]
+                    hint = { type = "case", suggestion = allDepNames[lower] }
                 end
-                table.insert(orphans, { name = a.name, typoHint = typoHint })
+
+                -- Tier 2: version-stripped match
+                if not hint then
+                    local stripped = StripVersionSuffix(a.name):lower()
+                    for _, depName in ipairs(allDepList) do
+                        if StripVersionSuffix(depName):lower() == stripped and depName ~= a.name then
+                            hint = { type = "version", suggestion = depName }
+                            break
+                        end
+                    end
+                end
+
+                -- Tier 3: levenshtein distance <= 2
+                if not hint then
+                    local match = FindClosestMatch(a.name, allDepList)
+                    if match then
+                        hint = { type = "typo", suggestion = match }
+                    end
+                end
+
+                table.insert(orphans, { name = a.name, hint = hint })
             end
         end
     end
@@ -170,7 +256,69 @@ function ACI.FindOrphanLibraries()
 end
 
 ----------------------------------------------------------------------
--- De-facto library: isLibrary=false인데 reverse dep ≥ threshold
+-- Missing dependencies: declared in DependsOn but not installed.
+-- 3-tier hint matching against installed addon names.
+----------------------------------------------------------------------
+function ACI.FindMissingDependencies()
+    local depIndex = ACI.BuildDependencyIndex()
+    if not depIndex then return {} end
+
+    local meta = ACI_SavedVars and ACI_SavedVars.metadata
+    if not meta or not meta.addons then return {} end
+
+    -- Build installed name lookup (lowercase -> actual name)
+    local installedLower = {}
+    local installedList = {}
+    for _, a in ipairs(meta.addons) do
+        installedLower[a.name:lower()] = a.name
+        table.insert(installedList, a.name)
+    end
+
+    local missing = {}
+    for depName, users in pairs(depIndex.reverse) do
+        if not depIndex.byName[depName] then
+            -- This dep name has no matching installed addon
+            local hint = nil
+
+            -- Tier 1: case-insensitive exact match
+            local lower = depName:lower()
+            if installedLower[lower] and installedLower[lower] ~= depName then
+                hint = { type = "case", suggestion = installedLower[lower] }
+            end
+
+            -- Tier 2: version-stripped match
+            if not hint then
+                local stripped = StripVersionSuffix(depName):lower()
+                for _, installed in ipairs(installedList) do
+                    if StripVersionSuffix(installed):lower() == stripped and installed ~= depName then
+                        hint = { type = "version", suggestion = installed }
+                        break
+                    end
+                end
+            end
+
+            -- Tier 3: levenshtein distance <= 2
+            if not hint then
+                local match = FindClosestMatch(depName, installedList)
+                if match then
+                    hint = { type = "typo", suggestion = match }
+                end
+            end
+
+            table.insert(missing, {
+                name = depName,
+                users = users,
+                hint = hint,
+            })
+        end
+    end
+
+    table.sort(missing, function(a, b) return #a.users > #b.users end)
+    return missing
+end
+
+----------------------------------------------------------------------
+-- De-facto library: not flagged isLibrary but reverse dep >= threshold
 ----------------------------------------------------------------------
 function ACI.FindDeFactoLibraries(threshold)
     threshold = threshold or 3
@@ -192,13 +340,13 @@ function ACI.FindDeFactoLibraries(threshold)
 end
 
 ----------------------------------------------------------------------
--- 이벤트 Hot Path: 같은 eventCode에 N개 이상의 base cluster가 등록
+-- Event Hot Path: N+ base clusters registered on the same eventCode
 ----------------------------------------------------------------------
 function ACI.FindEventHotPaths(threshold)
     threshold = threshold or 3
     local perEvent = {}
     for _, e in ipairs(ACI.eventLog) do
-        -- ACI 자신의 등록은 제외
+        -- Exclude ACI's own registrations
         if not ACI.IsSelfNamespace(e.namespace) then
             local code = e.eventCode
             local base = e.namespace:match("^(.-)%d+$") or e.namespace
@@ -227,22 +375,23 @@ function ACI.FindEventHotPaths(threshold)
 end
 
 ----------------------------------------------------------------------
--- Health Score — 환경 종합 진단
--- embedded 서브애드온 제외, 비율 기반 임계값
+-- Health Score — overall environment diagnosis
+-- Excludes embedded sub-addons, ratio-based thresholds
 ----------------------------------------------------------------------
 function ACI.ComputeHealthScore()
     local meta = ACI_SavedVars and ACI_SavedVars.metadata
     if not meta then return { level = "unknown", issues = {}, stats = {} } end
 
-    -- 저장된 rootPath(순수 Lua string)로 embedded 재계산
+    -- Recalculate embedded tags from stored rootPath (pure Lua string)
     ACI.TagEmbeddedAddons()
 
     local orphans     = ACI.FindOrphanLibraries()
+    local missingDeps = ACI.FindMissingDependencies()
     local deFacto     = ACI.FindDeFactoLibraries(3)
     local hotPaths    = ACI.FindEventHotPaths(3)
     local svConflicts = ACI.DetectSVConflicts()
 
-    -- embedded 제외 OOD 집계
+    -- OOD counts excluding embedded sub-addons
     local topLevelEnabled, topLevelOOD = 0, 0
     local libOOD, addonOOD = 0, 0
     local embeddedCount = 0
@@ -269,31 +418,44 @@ function ACI.ComputeHealthScore()
 
     local issues = {}
 
-    -- SV 충돌 — 항상 심각
+    -- SV conflicts — always critical
     if #svConflicts > 0 then
-        table.insert(issues, { level = "red", msg = #svConflicts .. "개 SV 충돌" })
+        table.insert(issues, { level = "red", msg = #svConflicts .. " SV conflict(s)" })
     end
 
-    -- OOD — 비율 기반
+    -- OOD — ratio-based severity
     if oodRatio > 0.8 then
         table.insert(issues, { level = "red",
-            msg = topLevelOOD .. "/" .. topLevelEnabled .. " 구버전 (" .. math.floor(oodRatio * 100 + 0.5) .. "%)" })
+            msg = topLevelOOD .. "/" .. topLevelEnabled .. " out-of-date (" .. math.floor(oodRatio * 100 + 0.5) .. "%)" })
     elseif oodRatio > 0.5 then
         table.insert(issues, { level = "yellow",
-            msg = topLevelOOD .. "/" .. topLevelEnabled .. " 구버전 (" .. math.floor(oodRatio * 100 + 0.5) .. "%)" })
+            msg = topLevelOOD .. "/" .. topLevelEnabled .. " out-of-date (" .. math.floor(oodRatio * 100 + 0.5) .. "%)" })
     elseif topLevelOOD > 0 then
         table.insert(issues, { level = "info",
-            msg = topLevelOOD .. "/" .. topLevelEnabled .. " 구버전 (" .. math.floor(oodRatio * 100 + 0.5) .. "%)" })
+            msg = topLevelOOD .. "/" .. topLevelEnabled .. " out-of-date (" .. math.floor(oodRatio * 100 + 0.5) .. "%)" })
     end
 
-    -- 고아 라이브러리
+    -- Missing dependencies — always notable
+    if #missingDeps > 0 then
+        local hinted = 0
+        for _, m in ipairs(missingDeps) do
+            if m.hint then hinted = hinted + 1 end
+        end
+        local msg = #missingDeps .. " missing dep(s)"
+        if hinted > 0 then
+            msg = msg .. " (" .. hinted .. " with hints)"
+        end
+        table.insert(issues, { level = "yellow", msg = msg })
+    end
+
+    -- Orphan libraries
     if #orphans > 3 then
-        table.insert(issues, { level = "yellow", msg = #orphans .. "개 불필요한 라이브러리" })
+        table.insert(issues, { level = "yellow", msg = #orphans .. " unused libraries" })
     elseif #orphans > 0 then
-        table.insert(issues, { level = "info", msg = #orphans .. "개 불필요한 라이브러리" })
+        table.insert(issues, { level = "info", msg = #orphans .. " unused libraries" })
     end
 
-    -- 최종 레벨 결정
+    -- Determine final severity level
     local level = "green"
     for _, i in ipairs(issues) do
         if i.level == "red" then level = "red"; break end
@@ -311,6 +473,7 @@ function ACI.ComputeHealthScore()
             embeddedCount   = embeddedCount,
             oodRatio        = oodRatio,
             orphans         = #orphans,
+            missingDeps     = #missingDeps,
             deFacto         = #deFacto,
             hotPaths        = #hotPaths,
             svConflicts     = #svConflicts,
@@ -319,7 +482,7 @@ function ACI.ComputeHealthScore()
 end
 
 ----------------------------------------------------------------------
--- Init 시간 추정 (loadOrder ts 차이)
+-- Init time estimation (loadOrder timestamp deltas)
 ----------------------------------------------------------------------
 function ACI.EstimateInitTimes()
     local results = {}
@@ -332,7 +495,7 @@ function ACI.EstimateInitTimes()
             index    = prev.index,
         })
     end
-    -- 마지막 애드온은 PLAYER_ACTIVATED까지의 시간을 알 수 없으므로 제외
+    -- Last addon excluded: no way to know time until PLAYER_ACTIVATED
     table.sort(results, function(a, b) return a.initMs > b.initMs end)
     return results
 end

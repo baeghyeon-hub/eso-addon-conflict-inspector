@@ -1,5 +1,5 @@
 ----------------------------------------------------------------------
--- ACI_Core.lua — 전역 테이블, SV 초기화, 이벤트 라이프사이클
+-- ACI_Core.lua — global table, SV init, event lifecycle
 ----------------------------------------------------------------------
 
 ACI = {}
@@ -8,13 +8,13 @@ ACI.version = "0.2.0"
 ACI.eventLog = {}
 ACI.svRegistrations = {}
 ACI.loadOrder = {}
-ACI.loadOrderMap = {}   -- addonName → loadIndex (역방향 조회용)
+ACI.loadOrderMap = {}   -- addonName -> loadIndex (reverse lookup)
 ACI.lastLoadedAddon = nil
 ACI.hookInstalled = false
 ACI.svHookInstalled = false
 
 ----------------------------------------------------------------------
--- 로딩 순서 추적 (파일 로드 시점에 즉시 등록)
+-- Load order tracking (registered at file load time)
 ----------------------------------------------------------------------
 local loadIndex = 0
 
@@ -32,10 +32,10 @@ end
 EVENT_MANAGER:RegisterForEvent(ACI.name .. "_LoadOrder", EVENT_ADD_ON_LOADED, OnAnyAddOnLoaded)
 
 ----------------------------------------------------------------------
--- 유틸리티
+-- Utilities
 ----------------------------------------------------------------------
 
--- ACI 자신의 namespace인지 판정 (self-filter 일관 적용용)
+-- Check if namespace belongs to ACI (for self-filter)
 function ACI.IsSelfNamespace(ns)
     return ns and ns:find(ACI.name, 1, true) ~= nil
 end
@@ -68,7 +68,8 @@ function ACI.EnumerateMethods(obj)
 end
 
 ----------------------------------------------------------------------
--- eventCode → 이름 매핑 (_G에서 EVENT_ 접두사 수집)
+-- eventCode -> name mapping (collect EVENT_ prefixed globals)
+-- Wrapped in pcall: pairs(_G) can crash on ESO protected globals
 ----------------------------------------------------------------------
 function ACI.BuildEventNameMap()
     local map = {}
@@ -82,7 +83,7 @@ function ACI.BuildEventNameMap()
     return map
 end
 
-ACI.eventNames = {}  -- PLAYER_ACTIVATED 이후에 채워짐
+ACI.eventNames = {}  -- Populated after PLAYER_ACTIVATED
 
 function ACI.EventName(code)
     if not next(ACI.eventNames) then
@@ -92,7 +93,7 @@ function ACI.EventName(code)
 end
 
 ----------------------------------------------------------------------
--- 메인 초기화
+-- Main initialization
 ----------------------------------------------------------------------
 local function OnACILoaded(eventCode, addonName)
     if addonName ~= ACI.name then return end
@@ -100,34 +101,34 @@ local function OnACILoaded(eventCode, addonName)
 
     ACI_SavedVars = ACI_SavedVars or {}
 
-    -- Hooks 설치 (ACI_Hooks.lua)
+    -- Install hooks (ACI_Hooks.lua)
     ACI.InstallEventHook()
     ACI.svHookInstalled = ACI.InstallSVHooks()
 
-    -- SV에 live 참조 저장
+    -- Store live references in SV
     ACI_SavedVars.eventLog        = ACI.eventLog
     ACI_SavedVars.svRegistrations = ACI.svRegistrations
     ACI_SavedVars.loadOrder       = ACI.loadOrder
 
-    -- 슬래시 명령어는 즉시 등록 (PLAYER_ACTIVATED 에러와 무관하게 작동)
+    -- Register commands immediately (works regardless of PLAYER_ACTIVATED errors)
     ACI.RegisterCommands()
 
-    -- PLAYER_ACTIVATED: 정적 데이터 수집 + 초기 리포트
+    -- PLAYER_ACTIVATED: collect static data + initial report
     EVENT_MANAGER:RegisterForEvent(ACI.name, EVENT_PLAYER_ACTIVATED, function()
         EVENT_MANAGER:UnregisterForEvent(ACI.name, EVENT_PLAYER_ACTIVATED)
         EVENT_MANAGER:UnregisterForEvent(ACI.name .. "_LoadOrder", EVENT_ADD_ON_LOADED)
 
-        -- eventCode → 이름 매핑 구축
+        -- Build eventCode -> name mapping
         ACI.eventNames = ACI.BuildEventNameMap()
 
-        -- 메타데이터 수집 (ACI_Inventory.lua)
+        -- Collect metadata (ACI_Inventory.lua)
         ACI_SavedVars.metadata = ACI.CollectMetadata()
         ACI_SavedVars.svHookOk = ACI.svHookInstalled
 
-        -- 채팅 UI 준비 후 리포트 출력 (zo_callLater로 지연)
+        -- Delay report until chat UI is ready (zo_callLater)
         zo_callLater(function()
             ACI.PrintReport()
-            d("[ACI] |c00FF00/aci|r 로 최신 통계를 볼 수 있습니다.")
+            d("[ACI] Type |c00FF00/aci|r for latest stats.")
         end, 1000)
     end)
 

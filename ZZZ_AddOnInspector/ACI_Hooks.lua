@@ -1,9 +1,9 @@
 ----------------------------------------------------------------------
--- ACI_Hooks.lua — PreHook 설치 (RegisterForEvent, ZO_SavedVars)
+-- ACI_Hooks.lua — PreHook install (RegisterForEvent, ZO_SavedVars)
 ----------------------------------------------------------------------
 
 ----------------------------------------------------------------------
--- RegisterForEvent 가로채기
+-- RegisterForEvent interception
 ----------------------------------------------------------------------
 function ACI.InstallEventHook()
     ZO_PreHook(EVENT_MANAGER, "RegisterForEvent", function(self, namespace, eventCode, callback, ...)
@@ -18,7 +18,7 @@ function ACI.InstallEventHook()
 end
 
 ----------------------------------------------------------------------
--- ZO_SavedVars 생성자 후킹
+-- ZO_SavedVars constructor hooking
 ----------------------------------------------------------------------
 local function RecordSVCall(method, tableName, version, namespace)
     local ns = tostring(namespace or "Default")

@@ -1,5 +1,5 @@
 ----------------------------------------------------------------------
--- ACI_Commands.lua — /aci 슬래시 명령어 체계
+-- ACI_Commands.lua — /aci slash command system
 ----------------------------------------------------------------------
 
 function ACI.RegisterCommands()
@@ -20,6 +20,8 @@ function ACI.RegisterCommands()
             ACI.PrintInitTimes()
         elseif args == "orphans" then
             ACI.PrintOrphans()
+        elseif args == "missing" then
+            ACI.PrintMissingDeps()
         elseif args == "hot" then
             ACI.PrintHotPaths()
         elseif args == "health" then
@@ -33,14 +35,14 @@ function ACI.RegisterCommands()
         elseif args == "help" then
             ACI.PrintHelp()
         else
-            d("[ACI] 알 수 없는 명령: " .. args)
+            d("[ACI] Unknown command: " .. args)
             ACI.PrintHelp()
         end
     end
 end
 
 ----------------------------------------------------------------------
--- /aci — 요약 리포트
+-- /aci — summary report
 ----------------------------------------------------------------------
 function ACI.PrintReport()
     local svConflicts = ACI.DetectSVConflicts()
@@ -59,7 +61,7 @@ function ACI.PrintReport()
 
     local totalSV = 0
     for key, entries in pairs(ACI.svRegistrations) do
-        -- ACI 자신의 SV 등록은 카운트에서 제외
+        -- Exclude ACI's own SV registrations from count
         for _, e in ipairs(entries) do
             if not ACI.IsSelfNamespace(e.caller) then
                 totalSV = totalSV + 1
@@ -68,7 +70,7 @@ function ACI.PrintReport()
     end
 
     d("--------------------------------------------")
-    d("[ACI] 환경 진단 리포트 (live)")
+    d("[ACI] Addon Environment Report (live)")
     d("--------------------------------------------")
 
     local meta = ACI_SavedVars and ACI_SavedVars.metadata
@@ -76,31 +78,31 @@ function ACI.PrintReport()
     local oodStr = meta and meta.outOfDateCount and meta.outOfDateCount > 0
         and ("  |cFFFF00" .. meta.outOfDateCount .. " out-of-date|r") or ""
 
-    d("[ACI] 로딩: " .. tostring(#ACI.loadOrder) .. "개 애드온" .. apiStr .. ", ACI=#" .. tostring(aciLoadIndex or "?") .. oodStr)
+    d("[ACI] Loaded: " .. tostring(#ACI.loadOrder) .. " addons" .. apiStr .. ", ACI=#" .. tostring(aciLoadIndex or "?") .. oodStr)
 
-    d("[ACI] 이벤트: |c00FF00" .. tostring(ACI.EventCountExcludingSelf()) .. "|r건, " .. tostring(#sorted) .. "개 클러스터")
+    d("[ACI] Events: |c00FF00" .. tostring(ACI.EventCountExcludingSelf()) .. "|r registrations, " .. tostring(#sorted) .. " clusters")
     for i = 1, math.min(5, #sorted) do
         local s = sorted[i]
         local suffix = s.count > 1 and (" (" .. s.count .. ")") or ""
         d("[ACI]   " .. s.base .. suffix)
     end
     if #sorted > 5 then
-        d("[ACI]   ... 외 " .. (#sorted - 5) .. "개")
+        d("[ACI]   ... +" .. (#sorted - 5) .. " more")
     end
 
-    d("[ACI] SV: " .. tostring(totalSV) .. "건, 충돌 " .. tostring(#svConflicts) .. "건")
-    d("[ACI] /aci help 로 전체 명령어 확인")
+    d("[ACI] SV: " .. tostring(totalSV) .. " registrations, " .. tostring(#svConflicts) .. " conflicts")
+    d("[ACI] Type /aci help for all commands")
     d("--------------------------------------------")
 end
 
 ----------------------------------------------------------------------
--- /aci stats — 클러스터별 이벤트 통계
+-- /aci stats — event registration stats by cluster
 ----------------------------------------------------------------------
 function ACI.PrintStats()
     local sorted = ACI.SortedClusters()
 
     d("--------------------------------------------")
-    d("[ACI] 이벤트 등록 통계 — " .. tostring(ACI.EventCountExcludingSelf()) .. "건 (live)")
+    d("[ACI] Event Registration Stats — " .. tostring(ACI.EventCountExcludingSelf()) .. " total (live)")
     d("--------------------------------------------")
     for i, s in ipairs(sorted) do
         local subInfo = s.subCount > 1 and (" [" .. s.subCount .. " sub-ns]") or ""
@@ -111,12 +113,12 @@ function ACI.PrintStats()
 end
 
 ----------------------------------------------------------------------
--- /aci addons — 애드온 목록
+-- /aci addons — addon list
 ----------------------------------------------------------------------
 function ACI.PrintAddons()
     local meta = ACI_SavedVars.metadata
     if not meta or not meta.addons then
-        d("[ACI] 메타데이터 없음. PLAYER_ACTIVATED 이후 사용하세요.")
+        d("[ACI] No metadata. Use after PLAYER_ACTIVATED.")
         return
     end
 
@@ -136,19 +138,19 @@ function ACI.PrintAddons()
     end
 
     d("--------------------------------------------")
-    d("[ACI] 애드온 목록 — " .. tostring(meta.numAddons) .. "개 (활성 " .. tostring(#addons + #libs) .. ", 비활성 " .. tostring(#disabled) .. ")")
+    d("[ACI] Addon List — " .. tostring(meta.numAddons) .. " total (enabled " .. tostring(#addons + #libs) .. ", disabled " .. tostring(#disabled) .. ")")
     if outOfDate > 0 then
-        d("[ACI] |cFFFF00구버전 경고: " .. tostring(outOfDate) .. "개|r")
+        d("[ACI] |cFFFF00Out-of-date: " .. tostring(outOfDate) .. "|r")
     end
     d("--------------------------------------------")
 
-    d("[ACI] |c00FF00애드온 (" .. #addons .. ")|r")
+    d("[ACI] |c00FF00Addons (" .. #addons .. ")|r")
     for _, a in ipairs(addons) do
         local flag = a.isOutOfDate and "|cFFFF00!|r " or "  "
         d("[ACI] " .. flag .. a.name .. "  v" .. tostring(a.version))
     end
 
-    d("[ACI] |c8888FF라이브러리 (" .. #libs .. ")|r")
+    d("[ACI] |c8888FF Libraries (" .. #libs .. ")|r")
     for _, a in ipairs(libs) do
         d("[ACI]   " .. a.name)
     end
@@ -156,7 +158,7 @@ function ACI.PrintAddons()
 end
 
 ----------------------------------------------------------------------
--- /aci sv — SV 등록 + 충돌
+-- /aci sv — SV registrations + conflicts
 ----------------------------------------------------------------------
 function ACI.PrintSV()
     local conflicts = ACI.DetectSVConflicts()
@@ -174,13 +176,13 @@ function ACI.PrintSV()
     end
 
     d("--------------------------------------------")
-    d("[ACI] SavedVariables 등록 — " .. tostring(totalSV) .. "건, 고유 쌍 " .. tostring(uniquePairs) .. "개")
+    d("[ACI] SavedVariables — " .. tostring(totalSV) .. " registrations, " .. tostring(uniquePairs) .. " unique pairs")
     d("--------------------------------------------")
 
     for key, entries in pairs(ACI.svRegistrations) do
         local callers = {}
         for _, e in ipairs(entries) do
-            -- ACI 자신의 SV는 목록에서 제외
+            -- Exclude ACI's own SV from listing
             if not ACI.IsSelfNamespace(e.caller) then
                 callers[e.caller] = true
             end
@@ -190,29 +192,29 @@ function ACI.PrintSV()
             for c in pairs(callers) do
                 callerStr = callerStr .. (callerStr ~= "" and ", " or "") .. c
             end
-            d("[ACI]   " .. key .. " ← " .. callerStr)
+            d("[ACI]   " .. key .. " <- " .. callerStr)
         end
     end
 
     if #conflicts > 0 then
-        d("[ACI] |cFF0000충돌 " .. #conflicts .. "건:|r")
+        d("[ACI] |cFF0000Conflicts: " .. #conflicts .. "|r")
         for _, c in ipairs(conflicts) do
-            d("[ACI]   " .. c.key .. " ← " .. table.concat(c.callers, " vs "))
+            d("[ACI]   " .. c.key .. " <- " .. table.concat(c.callers, " vs "))
         end
     else
-        d("[ACI]   충돌 없음")
+        d("[ACI]   No conflicts")
     end
     d("--------------------------------------------")
 end
 
 ----------------------------------------------------------------------
--- /aci init — 애드온별 init 시간 (상위 10)
+-- /aci init — addon init time estimation (top 10)
 ----------------------------------------------------------------------
 function ACI.PrintInitTimes()
     local times = ACI.EstimateInitTimes()
 
     d("--------------------------------------------")
-    d("[ACI] 애드온 Init 시간 추정 (상위 10)")
+    d("[ACI] Addon Init Time Estimation (top 10)")
     d("--------------------------------------------")
     for i = 1, math.min(10, #times) do
         local t = times[i]
@@ -223,18 +225,17 @@ function ACI.PrintInitTimes()
 end
 
 ----------------------------------------------------------------------
--- /aci deps [name] — 의존성 트리
+-- /aci deps [name] — dependency tree
 ----------------------------------------------------------------------
 function ACI.PrintDeps(name)
     local depIndex = ACI.BuildDependencyIndex()
     if not depIndex then
-        d("[ACI] 메타데이터 없음. PLAYER_ACTIVATED 이후 사용하세요.")
+        d("[ACI] No metadata. Use after PLAYER_ACTIVATED.")
         return
     end
 
     if name then
-        -- 특정 애드온의 forward + reverse
-        -- 대소문자 무시 매칭
+        -- Specific addon: forward + reverse deps (case-insensitive match)
         local matchedName = nil
         for n in pairs(depIndex.byName) do
             if n:lower() == name:lower() then
@@ -243,7 +244,7 @@ function ACI.PrintDeps(name)
             end
         end
         if not matchedName then
-            d("[ACI] '" .. name .. "' 을(를) 찾을 수 없습니다.")
+            d("[ACI] '" .. name .. "' not found.")
             return
         end
 
@@ -255,7 +256,7 @@ function ACI.PrintDeps(name)
         d("[ACI] " .. matchedName .. (addon.isLibrary and " |c8888FF[Library]|r" or ""))
         d("--------------------------------------------")
 
-        d("[ACI] 의존성 (이것이 필요로 하는 것): " .. tostring(#fwd) .. "개")
+        d("[ACI] Dependencies (needs): " .. tostring(#fwd))
         if #fwd > 0 then
             for _, depName in ipairs(fwd) do
                 local depAddon = depIndex.byName[depName]
@@ -264,7 +265,7 @@ function ACI.PrintDeps(name)
             end
         end
 
-        d("[ACI] 역의존성 (이것을 사용하는 것): " .. tostring(#rev) .. "개")
+        d("[ACI] Reverse deps (used by): " .. tostring(#rev))
         if #rev > 0 then
             for _, userName in ipairs(rev) do
                 d("[ACI]   " .. userName)
@@ -272,7 +273,7 @@ function ACI.PrintDeps(name)
         end
         d("--------------------------------------------")
     else
-        -- 전체 요약: 가장 많이 사용되는 라이브러리 상위 10
+        -- Overview: most-used libraries top 15
         local sorted = {}
         for depName, users in pairs(depIndex.reverse) do
             table.insert(sorted, { name = depName, count = #users })
@@ -280,80 +281,127 @@ function ACI.PrintDeps(name)
         table.sort(sorted, function(a, b) return a.count > b.count end)
 
         d("--------------------------------------------")
-        d("[ACI] 의존성 요약 — 가장 많이 사용되는 라이브러리")
+        d("[ACI] Dependency Summary — most depended-on libraries")
         d("--------------------------------------------")
         for i = 1, math.min(15, #sorted) do
             local s = sorted[i]
-            d(string.format("[ACI]   %3d개가 사용  %s", s.count, s.name))
+            d(string.format("[ACI]   %3d dependents  %s", s.count, s.name))
         end
         if #sorted > 15 then
-            d("[ACI]   ... 외 " .. (#sorted - 15) .. "개")
+            d("[ACI]   ... +" .. (#sorted - 15) .. " more")
         end
 
-        -- 의존성 없는 애드온
+        -- Addons with no dependencies
         local noDeps = {}
         for name, fwd in pairs(depIndex.forward) do
             if #fwd == 0 then
                 table.insert(noDeps, name)
             end
         end
-        d("[ACI] 의존성 없는 애드온: " .. tostring(#noDeps) .. "개")
+        d("[ACI] Addons with no dependencies: " .. tostring(#noDeps))
         d("--------------------------------------------")
     end
 end
 
 ----------------------------------------------------------------------
--- /aci orphans — 불필요한 라이브러리 + de-facto library
+-- /aci orphans — unused libraries + de-facto libraries
 ----------------------------------------------------------------------
 function ACI.PrintOrphans()
     local orphans = ACI.FindOrphanLibraries()
     local deFacto = ACI.FindDeFactoLibraries(3)
 
     d("--------------------------------------------")
-    d("[ACI] 라이브러리 분석")
+    d("[ACI] Library Analysis")
     d("--------------------------------------------")
 
     if #orphans > 0 then
-        d("[ACI] |cFFFF00불필요한 라이브러리 (" .. #orphans .. "개)|r — 활성 애드온 중 아무도 안 씀:")
+        d("[ACI] |cFFFF00Unused libraries (" .. #orphans .. ")|r — no enabled addon depends on these:")
         for _, o in ipairs(orphans) do
-            if o.typoHint then
-                d("[ACI]   " .. o.name .. " |cFF6600← 오타? " .. o.typoHint .. " 과 혼동|r")
+            if o.hint then
+                local tag
+                if o.hint.type == "case" then
+                    tag = "|cFF6600<- case mismatch? " .. o.hint.suggestion .. "|r"
+                elseif o.hint.type == "version" then
+                    tag = "|cFF6600<- version mismatch? " .. o.hint.suggestion .. "|r"
+                else
+                    tag = "|cFFFF00<- typo? " .. o.hint.suggestion .. "|r"
+                end
+                d("[ACI]   " .. o.name .. " " .. tag)
             else
                 d("[ACI]   " .. o.name)
             end
         end
     else
-        d("[ACI] |c00FF00불필요한 라이브러리 없음|r")
+        d("[ACI] |c00FF00No unused libraries|r")
     end
 
     if #deFacto > 0 then
-        d("[ACI] |c8888FFDe-facto 라이브러리|r — 라이브러리 아닌데 여러 애드온이 의존:")
+        d("[ACI] |c8888FFDe-facto libraries|r — not flagged as library but multiple addons depend on:")
         for _, df in ipairs(deFacto) do
-            d("[ACI]   " .. df.name .. " (" .. df.userCount .. "개가 사용)")
+            d("[ACI]   " .. df.name .. " (" .. df.userCount .. " dependents)")
         end
     end
     d("--------------------------------------------")
 end
 
 ----------------------------------------------------------------------
--- /aci hot — 이벤트 hot path
+-- /aci missing — unresolved dependencies (declared but not installed)
+----------------------------------------------------------------------
+function ACI.PrintMissingDeps()
+    local missing = ACI.FindMissingDependencies()
+
+    d("--------------------------------------------")
+    d("[ACI] Missing Dependencies")
+    d("--------------------------------------------")
+
+    if #missing == 0 then
+        d("[ACI] |c00FF00No missing dependencies|r")
+    else
+        d("[ACI] |cFFFF00" .. #missing .. " dep(s) declared but not installed:|r")
+        for _, m in ipairs(missing) do
+            local line = "[ACI]   " .. m.name .. " (" .. #m.users .. " addon(s) need this)"
+            d(line)
+
+            if m.hint then
+                local tag
+                if m.hint.type == "case" then
+                    tag = "|cFF6600  -> case mismatch: " .. m.hint.suggestion .. " is installed|r"
+                elseif m.hint.type == "version" then
+                    tag = "|cFF6600  -> version mismatch: " .. m.hint.suggestion .. " is installed|r"
+                else
+                    tag = "|cFFFF00  -> typo? " .. m.hint.suggestion .. " is installed|r"
+                end
+                d("[ACI] " .. tag)
+            end
+
+            -- List which addons need this dep
+            for _, u in ipairs(m.users) do
+                d("[ACI]     <- " .. u)
+            end
+        end
+    end
+    d("--------------------------------------------")
+end
+
+----------------------------------------------------------------------
+-- /aci hot — event hot paths
 ----------------------------------------------------------------------
 function ACI.PrintHotPaths()
     local hot = ACI.FindEventHotPaths(2)
 
     d("--------------------------------------------")
-    d("[ACI] 이벤트 Hot Path — 여러 애드온이 같은 이벤트에 등록")
+    d("[ACI] Event Hot Paths — multiple addons on the same event")
     d("--------------------------------------------")
 
     if #hot == 0 then
-        d("[ACI] hot path 없음")
+        d("[ACI] No hot paths")
     else
         for _, h in ipairs(hot) do
             local name = ACI.EventName(h.eventCode)
             local color = h.baseCount >= 5 and "|cFF6600" or h.baseCount >= 3 and "|cFFFF00" or "|cCCCCCC"
-            d(color .. string.format("  %d개 애드온, %d건  %s|r", h.baseCount, h.totalCount, name))
+            d(color .. string.format("  %d addons, %d regs  %s|r", h.baseCount, h.totalCount, name))
 
-            -- 등록한 base cluster 나열
+            -- List registered base clusters
             local bases = {}
             for base, count in pairs(h.bases) do
                 table.insert(bases, { base = base, count = count })
@@ -374,7 +422,7 @@ function ACI.PrintHotPaths()
 end
 
 ----------------------------------------------------------------------
--- /aci health — 환경 종합 진단 (신호등)
+-- /aci health — overall environment diagnosis (traffic light)
 ----------------------------------------------------------------------
 function ACI.PrintHealth()
     local h = ACI.ComputeHealthScore()
@@ -383,41 +431,41 @@ function ACI.PrintHealth()
     local color = h.level == "red" and "|cFF0000"
         or h.level == "yellow" and "|cFFFF00"
         or "|c00FF00"
-    local label = h.level == "red" and "문제 있음"
-        or h.level == "yellow" and "주의"
-        or "정상"
+    local label = h.level == "red" and "Issues Found"
+        or h.level == "yellow" and "Warning"
+        or "Healthy"
 
     d("--------------------------------------------")
     d("[ACI] " .. color .. "● " .. label .. "|r")
     d("--------------------------------------------")
 
-    -- OOD 상세 (embedded 제외 비율 기반)
+    -- OOD detail (ratio-based, excluding embedded)
     local pct = math.floor(s.oodRatio * 100 + 0.5)
-    d(string.format("[ACI] 구버전: %d/%d top-level (%d%%)",
+    d(string.format("[ACI] Out-of-date: %d/%d top-level (%d%%)",
         s.topLevelOOD, s.topLevelEnabled, pct))
     if s.embeddedCount > 0 then
-        d(string.format("[ACI]   (embedded 서브애드온 %d개 제외)", s.embeddedCount))
+        d(string.format("[ACI]   (%d embedded sub-addons excluded)", s.embeddedCount))
     end
-    d(string.format("[ACI]   라이브러리 %d | 본체 %d", s.libOOD, s.addonOOD))
+    d(string.format("[ACI]   Libraries %d | Addons %d", s.libOOD, s.addonOOD))
 
-    -- 비율 기반 컨텍스트
+    -- Ratio-based context
     local ctx
     if s.oodRatio > 0.8 then
-        ctx = "메이저 패치 직후이거나 장기 방치"
+        ctx = "Major patch or long-neglected"
     elseif s.oodRatio > 0.5 then
-        ctx = "패치 후 정상 범위 (1-2개월 내)"
+        ctx = "Normal after patch (1-2 months)"
     elseif s.oodRatio > 0.2 then
-        ctx = "정상"
+        ctx = "Normal"
     else
-        ctx = "잘 관리됨"
+        ctx = "Well maintained"
     end
-    d("[ACI]   → " .. ctx)
+    d("[ACI]   -> " .. ctx)
 
-    -- 기타 이슈 (SV 충돌, 고아 라이브러리 등)
+    -- Other issues (SV conflicts, orphans, missing deps, etc.)
     local otherIssues = {}
     for _, i in ipairs(h.issues) do
-        -- OOD는 위에서 이미 표시했으므로 제외
-        if not i.msg:find("구버전") then
+        -- OOD already shown above, skip it
+        if not i.msg:find("out%-of%-date") then
             table.insert(otherIssues, i)
         end
     end
@@ -431,25 +479,25 @@ function ACI.PrintHealth()
     end
 
     d("[ACI]")
-    d("[ACI] 이벤트: " .. tostring(ACI.EventCountExcludingSelf()) .. "건, hot path " .. tostring(s.hotPaths) .. "개")
-    d("[ACI] 상세: /aci orphans | /aci hot | /aci sv | /aci addons")
+    d("[ACI] Events: " .. tostring(ACI.EventCountExcludingSelf()) .. ", hot paths " .. tostring(s.hotPaths))
+    d("[ACI] Details: /aci orphans | /aci missing | /aci hot | /aci sv")
     d("--------------------------------------------")
 end
 
 ----------------------------------------------------------------------
--- /aci debug — embedded 감지 진단 (임시)
+-- /aci debug — embedded detection diagnostics
 ----------------------------------------------------------------------
 function ACI.PrintDebug()
     local meta = ACI_SavedVars and ACI_SavedVars.metadata
     if not meta or not meta.addons then
-        d("[ACI] 메타데이터 없음.")
+        d("[ACI] No metadata.")
         return
     end
 
     ACI.TagEmbeddedAddons()
 
     d("--------------------------------------------")
-    d("[ACI] Debug — embedded 현황")
+    d("[ACI] Debug — embedded status")
     d("--------------------------------------------")
 
     local embCount = 0
@@ -464,16 +512,16 @@ function ACI.PrintDebug()
 end
 
 ----------------------------------------------------------------------
--- /aci dump — 진단 데이터를 SV에 저장 (파일에서 복사 가능)
+-- /aci dump — save diagnostic data to SV (copy from file)
 ----------------------------------------------------------------------
 function ACI.DumpToSV()
     local meta = ACI_SavedVars and ACI_SavedVars.metadata
     if not meta or not meta.addons then
-        d("[ACI] 메타데이터 없음.")
+        d("[ACI] No metadata.")
         return
     end
 
-    -- embedded 태깅 (저장된 rootPath 기반 재계산)
+    -- Recalculate embedded tags from stored rootPath
     ACI.TagEmbeddedAddons()
 
     local dump = {}
@@ -499,7 +547,7 @@ function ACI.DumpToSV()
         health  = health,
     }
 
-    d("[ACI] dump 저장 완료. /reloadui 후 SV 파일에서 [\"dump\"] 블록을 확인하세요.")
+    d("[ACI] Dump saved. Check [\"dump\"] block in SV file after /reloadui.")
 end
 
 ----------------------------------------------------------------------
@@ -509,9 +557,9 @@ function ACI.ForceSave()
     local mgr = GetAddOnManager()
     if mgr and mgr.RequestAddOnSavedVariablesPrioritySave then
         mgr:RequestAddOnSavedVariablesPrioritySave()
-        d("[ACI] SV 우선 저장 요청됨.")
+        d("[ACI] SV priority save requested.")
     else
-        d("[ACI] 사용 불가. /reloadui 로 저장하세요.")
+        d("[ACI] Not available. Use /reloadui to save.")
     end
 end
 
@@ -520,19 +568,20 @@ end
 ----------------------------------------------------------------------
 function ACI.PrintHelp()
     d("--------------------------------------------")
-    d("[ACI] 명령어 목록")
+    d("[ACI] Commands")
     d("--------------------------------------------")
-    d("[ACI]   /aci          요약 리포트")
-    d("[ACI]   /aci stats    이벤트 등록 통계 (클러스터별)")
-    d("[ACI]   /aci addons   애드온 목록")
-    d("[ACI]   /aci deps     가장 많이 쓰이는 라이브러리")
-    d("[ACI]   /aci deps X   X의 forward/reverse 의존성")
-    d("[ACI]   /aci init     Init 시간 추정 (상위 10)")
-    d("[ACI]   /aci orphans  불필요한 라이브러리 + de-facto")
-    d("[ACI]   /aci hot      이벤트 hot path")
-    d("[ACI]   /aci health   환경 종합 진단 (신호등)")
-    d("[ACI]   /aci sv       SV 등록 + 충돌")
-    d("[ACI]   /aci save     SV 강제 저장")
-    d("[ACI]   /aci help     이 도움말")
+    d("[ACI]   /aci          summary report")
+    d("[ACI]   /aci stats    event registration stats")
+    d("[ACI]   /aci addons   addon list")
+    d("[ACI]   /aci deps     most-used libraries")
+    d("[ACI]   /aci deps X   forward/reverse deps for X")
+    d("[ACI]   /aci init     init time estimation (top 10)")
+    d("[ACI]   /aci orphans  unused libraries + de-facto")
+    d("[ACI]   /aci missing  missing dependencies + hints")
+    d("[ACI]   /aci hot      event hot paths")
+    d("[ACI]   /aci health   environment diagnosis")
+    d("[ACI]   /aci sv       SV registrations + conflicts")
+    d("[ACI]   /aci save     force SV save")
+    d("[ACI]   /aci help     this help")
     d("--------------------------------------------")
 end
