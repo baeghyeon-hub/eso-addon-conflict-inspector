@@ -206,6 +206,41 @@ function ACI.PrintSV()
     else
         d("[ACI]   No conflicts")
     end
+
+    -- SV disk usage (top 10 by size)
+    local meta = ACI_SavedVars and ACI_SavedVars.metadata
+    if meta and meta.addons then
+        local svSizes = {}
+        local totalMB = 0
+        for _, a in ipairs(meta.addons) do
+            if a.enabled and a.svDiskMB and a.svDiskMB > 0 then
+                table.insert(svSizes, { name = a.name, mb = a.svDiskMB })
+                totalMB = totalMB + a.svDiskMB
+            end
+        end
+        table.sort(svSizes, function(a, b) return a.mb > b.mb end)
+
+        if #svSizes > 0 then
+            d("[ACI]")
+            d(string.format("[ACI] SV Disk Usage — %.2f MB total across %d addons", totalMB, #svSizes))
+            local limit = math.min(10, #svSizes)
+            for i = 1, limit do
+                local s = svSizes[i]
+                local sizeStr
+                if s.mb >= 1 then
+                    sizeStr = string.format("%.2f MB", s.mb)
+                else
+                    sizeStr = string.format("%.1f KB", s.mb * 1024)
+                end
+                local color = s.mb >= 1 and "|cFF6600" or s.mb >= 0.1 and "|cFFFF00" or "|cCCCCCC"
+                d(string.format("[ACI]   %s%s  %s|r", color, sizeStr, s.name))
+            end
+            if #svSizes > 10 then
+                d("[ACI]   ... +" .. (#svSizes - 10) .. " more")
+            end
+        end
+    end
+
     d("--------------------------------------------")
 end
 
