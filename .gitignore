@@ -1,0 +1,8 @@
+# Temp/debug files
+_dump_temp.txt
+_dump_verified.md
+_embedded_debug_report.md
+_havok_string_test.md
+
+# Claude Code project config
+.claude/
