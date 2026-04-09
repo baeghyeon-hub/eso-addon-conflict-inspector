@@ -210,11 +210,25 @@ function ACI.PrintSV()
     -- SV disk usage (top 10 by size)
     local meta = ACI_SavedVars and ACI_SavedVars.metadata
     if meta and meta.addons then
+        -- Build dependency index for dependent counts
+        local depIndex = ACI.BuildDependencyIndex()
+        local orphanSet = {}
+        local orphans = ACI.FindOrphanLibraries()
+        for _, o in ipairs(orphans) do orphanSet[o.name] = true end
+
         local svSizes = {}
         local totalMB = 0
         for _, a in ipairs(meta.addons) do
             if a.enabled and a.svDiskMB and a.svDiskMB > 0 then
-                table.insert(svSizes, { name = a.name, mb = a.svDiskMB })
+                local deps = depIndex and depIndex.reverse[a.name] or {}
+                table.insert(svSizes, {
+                    name = a.name,
+                    mb = a.svDiskMB,
+                    dependents = #deps,
+                    isLibrary = a.isLibrary,
+                    isOrphan = orphanSet[a.name] or false,
+                    isOOD = a.isOutOfDate,
+                })
                 totalMB = totalMB + a.svDiskMB
             end
         end
@@ -233,7 +247,18 @@ function ACI.PrintSV()
                     sizeStr = string.format("%.1f KB", s.mb * 1024)
                 end
                 local color = s.mb >= 1 and "|cFF6600" or s.mb >= 0.1 and "|cFFFF00" or "|cCCCCCC"
-                d(string.format("[ACI]   %s%s  %s|r", color, sizeStr, s.name))
+
+                -- Value/waste tag
+                local tag = ""
+                if s.isLibrary and s.isOrphan and s.isOOD then
+                    tag = " |cFF0000[waste]|r"
+                elseif s.isLibrary and s.isOrphan then
+                    tag = " |cFFFF00[unused]|r"
+                elseif s.isLibrary and s.dependents > 0 then
+                    tag = string.format(" |c00FF00[%d deps]|r", s.dependents)
+                end
+
+                d(string.format("[ACI]   %s%s  %s|r%s", color, sizeStr, s.name, tag))
             end
             if #svSizes > 10 then
                 d("[ACI]   ... +" .. (#svSizes - 10) .. " more")
@@ -591,16 +616,25 @@ function ACI.PrintHealth()
         end
     end
 
-    -- Safe-to-delete: orphan AND out-of-date
-    local safeToDelete = ACI.FindSafeToDelete()
+    -- Safe-to-delete: orphan AND out-of-date (sorted by SV size)
+    local safeToDelete, saveMB = ACI.FindSafeToDelete()
     if #safeToDelete > 0 then
         d("[ACI]")
-        d("[ACI] |cFF6600● Safe to delete (" .. #safeToDelete .. ")|r — unused AND outdated:")
-        local names = {}
+        local saveStr = saveMB > 0
+            and string.format(" — saves %.1f KB", saveMB * 1024)
+            or ""
+        d("[ACI] |cFF6600● Safe to delete (" .. #safeToDelete .. ")|r — unused AND outdated:" .. saveStr)
         for _, s in ipairs(safeToDelete) do
-            table.insert(names, s.name)
+            local sizeTag = ""
+            if s.svDiskMB and s.svDiskMB > 0 then
+                if s.svDiskMB >= 1 then
+                    sizeTag = string.format(" |c888888(%.2f MB)|r", s.svDiskMB)
+                else
+                    sizeTag = string.format(" |c888888(%.1f KB)|r", s.svDiskMB * 1024)
+                end
+            end
+            d("[ACI]   " .. s.name .. sizeTag)
         end
-        d("[ACI]   " .. table.concat(names, ", "))
         d("[ACI]   |cCCCCCC^ No dependents, no updates. Zero-risk removal.|r")
     end
 

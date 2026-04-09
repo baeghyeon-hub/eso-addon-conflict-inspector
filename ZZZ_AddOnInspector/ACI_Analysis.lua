@@ -390,14 +390,19 @@ function ACI.FindSafeToDelete()
     ACI.TagEmbeddedAddons()
 
     local result = {}
+    local totalSaveMB = 0
     for _, a in ipairs(meta.addons) do
         if a.enabled and a.isLibrary and a.isOutOfDate
             and not a.isEmbedded and orphanSet[a.name]
         then
-            table.insert(result, { name = a.name, version = a.version })
+            local mb = a.svDiskMB or 0
+            totalSaveMB = totalSaveMB + mb
+            table.insert(result, { name = a.name, version = a.version, svDiskMB = mb })
         end
     end
-    return result
+    -- Sort by SV size descending (biggest waste first)
+    table.sort(result, function(a, b) return a.svDiskMB > b.svDiskMB end)
+    return result, totalSaveMB
 end
 
 ----------------------------------------------------------------------
@@ -517,6 +522,28 @@ function ACI.ComputeHealthScore()
         table.insert(issues, { level = "yellow", msg = #orphans .. " unused libraries" })
     elseif #orphans > 0 then
         table.insert(issues, { level = "info", msg = #orphans .. " unused libraries" })
+    end
+
+    -- Big SV alert — single addon using > 50% of total SV disk
+    if meta.addons then
+        local totalMB = 0
+        local biggest = { name = nil, mb = 0 }
+        for _, a in ipairs(meta.addons) do
+            if a.enabled and a.svDiskMB and a.svDiskMB > 0 then
+                totalMB = totalMB + a.svDiskMB
+                if a.svDiskMB > biggest.mb then
+                    biggest = { name = a.name, mb = a.svDiskMB }
+                end
+            end
+        end
+        if totalMB > 0 and biggest.name then
+            local pct = biggest.mb / totalMB * 100
+            if pct > 50 then
+                table.insert(issues, { level = "yellow",
+                    msg = string.format("%s uses %.0f%% of SV disk (%.2f MB / %.2f MB)",
+                        biggest.name, pct, biggest.mb, totalMB) })
+            end
+        end
     end
 
     -- Determine final severity level
