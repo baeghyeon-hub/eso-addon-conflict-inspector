@@ -13,7 +13,7 @@ An ESO (Elder Scrolls Online) addon that diagnoses your addon environment — ev
   - Typo detection via Levenshtein distance
 - **Out-of-Date Segmentation** — classifies OOD addons into standalone (user action needed), library (author abandoned), and embedded (bundled, ignore)
 - **Safe-to-Delete Detection** — identifies orphan libraries that are also out-of-date with per-item SV size and total savings estimate
-- **SavedVariables Analysis** — conflict detection, disk usage ranking with value/waste tags (`[deps]`, `[unused]`, `[waste]`), and big SV alerts when a single addon dominates disk usage (>50%)
+- **SavedVariables Analysis** — conflict detection via `debug.traceback`-based caller attribution, disk usage ranking with value/waste tags (`[deps]`, `[unused]`, `[waste]`), and big SV alerts when a single addon dominates disk usage (>50%)
 - **Embedded Sub-addon Tagging** — distinguishes top-level addons from bundled sub-addons via `rootPath` analysis
 - **Health Score** — traffic-light diagnosis (green/yellow/red) with segmented OOD breakdown, orphan count, missing deps, SV conflicts, big SV alerts, and safe-to-delete recommendations with savings
 - **16 Slash Commands** — `/aci`, `/aci health`, `/aci orphans`, `/aci missing`, `/aci ood`, `/aci deps`, and more
@@ -52,7 +52,7 @@ The `ZZZ_` prefix ensures it loads last, allowing it to observe all other addons
 ```
 ZZZ_AddOnInspector/
   ACI_Core.lua        — globals, SV init, event lifecycle, utilities
-  ACI_Hooks.lua       — PreHook install (RegisterForEvent, ZO_SavedVars)
+  ACI_Hooks.lua       — PreHook install (RegisterForEvent, ZO_SavedVars), traceback-based caller detection
   ACI_Inventory.lua   — static metadata collection via GetAddOnManager
   ACI_Analysis.lua    — clustering, dependency index, OOD segmentation, SV cross-analysis, health score, typo detection
   ACI_Commands.lua    — /aci slash command system (16 commands)
@@ -64,6 +64,8 @@ ZZZ_AddOnInspector/
 - **`d()` needs `zo_callLater`** — chat output during `EVENT_ADD_ON_LOADED` or `EVENT_PLAYER_ACTIVATED` executes without error but the chat UI isn't ready to display. Delay with `zo_callLater(fn, 500-1000)`.
 - **`/reloadui` does not reload addon code** — ESO requires a full game restart to pick up Lua file changes.
 - **`OptionalDependsOn` is invisible to API** — `GetAddOnDependencyInfo()` only returns `DependsOn` entries. `OptionalDependsOn` entries are not reported. See `docs/Phase 2 Step 3 - OptionalDependsOn API Discovery.md`.
+- **`ZO_SavedVars` colon vs dot call** — `ZO_PreHook` on table methods shifts arguments when the caller uses dot syntax (`ZO_SavedVars.New(...)`) vs colon syntax (`ZO_SavedVars:New(...)`). ACI handles both via `type(self)` detection.
+- **`lastLoadedAddon` is unreliable after load phase** — During `PLAYER_ACTIVATED`, it's permanently the last addon (ACI itself). SV caller attribution uses `debug.traceback` folder extraction instead.
 
 ## Documentation
 
@@ -71,7 +73,7 @@ Development logs and design documents are in the `docs/` folder, organized by ph
 
 - **Phase 0** — Proof of concept, SV data analysis
 - **Phase 1** — Full architecture, inventory, analysis, health score, commands
-- **Phase 2** — Technical debt cleanup (`pairs(_G)` fix), missing dep detection, typo hints, OOD segmentation, safe-to-delete, SV disk cross-analysis
+- **Phase 2** *(complete)* — Technical debt cleanup (`pairs(_G)` fix), missing dep detection, typo hints, OOD segmentation, safe-to-delete, SV disk cross-analysis, traceback-based SV caller detection, conflict validation
 
 ## License
 
