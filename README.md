@@ -12,10 +12,10 @@ An ESO (Elder Scrolls Online) addon that diagnoses your addon environment — ev
   - Version suffix mismatch (`LibFoo` installed but `LibFoo-2.0` declared)
   - Typo detection via Levenshtein distance
 - **Out-of-Date Segmentation** — classifies OOD addons into standalone (user action needed), library (author abandoned), and embedded (bundled, ignore)
-- **Safe-to-Delete Detection** — identifies orphan libraries that are also out-of-date: zero-risk removal candidates
-- **SavedVariables Conflict Detection** — identifies multiple addons writing to the same SV table::namespace pair
+- **Safe-to-Delete Detection** — identifies orphan libraries that are also out-of-date with per-item SV size and total savings estimate
+- **SavedVariables Analysis** — conflict detection, disk usage ranking with value/waste tags (`[deps]`, `[unused]`, `[waste]`), and big SV alerts when a single addon dominates disk usage (>50%)
 - **Embedded Sub-addon Tagging** — distinguishes top-level addons from bundled sub-addons via `rootPath` analysis
-- **Health Score** — traffic-light diagnosis (green/yellow/red) with segmented OOD breakdown, orphan count, missing deps, SV conflicts, and safe-to-delete recommendations
+- **Health Score** — traffic-light diagnosis (green/yellow/red) with segmented OOD breakdown, orphan count, missing deps, SV conflicts, big SV alerts, and safe-to-delete recommendations with savings
 - **16 Slash Commands** — `/aci`, `/aci health`, `/aci orphans`, `/aci missing`, `/aci ood`, `/aci deps`, and more
 
 ## Installation
@@ -43,7 +43,7 @@ The `ZZZ_` prefix ensures it loads last, allowing it to observe all other addons
 | `/aci deps X` | Forward/reverse deps for addon X |
 | `/aci init` | Init time estimation (top 10) |
 | `/aci hot` | Event hot paths |
-| `/aci sv` | SavedVariables registrations + conflicts |
+| `/aci sv` | SavedVariables registrations, conflicts, disk usage + value/waste tags |
 | `/aci save` | Force SV priority save |
 | `/aci help` | Command list |
 
@@ -54,7 +54,7 @@ ZZZ_AddOnInspector/
   ACI_Core.lua        — globals, SV init, event lifecycle, utilities
   ACI_Hooks.lua       — PreHook install (RegisterForEvent, ZO_SavedVars)
   ACI_Inventory.lua   — static metadata collection via GetAddOnManager
-  ACI_Analysis.lua    — clustering, dependency index, OOD segmentation, health score, typo detection
+  ACI_Analysis.lua    — clustering, dependency index, OOD segmentation, SV cross-analysis, health score, typo detection
   ACI_Commands.lua    — /aci slash command system (16 commands)
 ```
 
@@ -71,7 +71,7 @@ Development logs and design documents are in the `docs/` folder, organized by ph
 
 - **Phase 0** — Proof of concept, SV data analysis
 - **Phase 1** — Full architecture, inventory, analysis, health score, commands
-- **Phase 2** — Technical debt cleanup (`pairs(_G)` fix), missing dep detection, typo hints, OOD segmentation, safe-to-delete
+- **Phase 2** — Technical debt cleanup (`pairs(_G)` fix), missing dep detection, typo hints, OOD segmentation, safe-to-delete, SV disk cross-analysis
 
 ## License
 
