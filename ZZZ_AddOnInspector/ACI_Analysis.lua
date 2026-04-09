@@ -142,7 +142,9 @@ function ACI.DetectSVConflicts()
     for key, entries in pairs(ACI.svRegistrations) do
         local callers = {}
         for _, e in ipairs(entries) do
-            callers[e.caller] = true
+            if not ACI.IsSelfNamespace(e.caller) then
+                callers[e.caller] = true
+            end
         end
         local callerList = {}
         for c in pairs(callers) do
