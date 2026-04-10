@@ -25,7 +25,9 @@ function ACI.RegisterCommands()
         elseif args == "ood" then
             ACI.PrintOOD()
         elseif args == "hot" then
-            ACI.PrintHotPaths()
+            ACI.PrintHotPaths("addons")
+        elseif args == "hot regs" then
+            ACI.PrintHotPaths("regs")
         elseif args == "health" then
             ACI.PrintHealth()
         elseif args == "save" then
@@ -448,36 +450,61 @@ end
 ----------------------------------------------------------------------
 -- /aci hot — event hot paths
 ----------------------------------------------------------------------
-function ACI.PrintHotPaths()
-    local hot = ACI.FindEventHotPaths(2)
+function ACI.PrintHotPaths(mode)
+    mode = mode or "addons"
+    local hot, crossRef = ACI.FindHotPathsWithCrossRef(2, 30)
 
+    -- Re-sort by reg count if requested, then truncate to 10
+    if mode == "regs" then
+        table.sort(hot, function(a, b) return a.totalCount > b.totalCount end)
+    end
+    local limit = math.min(10, #hot)
+    local truncated = {}
+    for i = 1, limit do truncated[i] = hot[i] end
+    hot = truncated
+
+    local title = (mode == "regs") and "top 10 by registration count" or "top 10 by addon count"
     d("--------------------------------------------")
-    d("[ACI] Event Hot Paths — multiple addons on the same event")
+    d("[ACI] Event Hot Paths — " .. title)
+    d("|cAAAAAA(registration count, not firing frequency. CPU impact requires profiling.)|r")
     d("--------------------------------------------")
 
     if #hot == 0 then
         d("[ACI] No hot paths")
     else
+        -- Threshold for cross-hot warning: addon appears in >=50% of listed hot events
+        local warnThreshold = math.max(3, math.floor(#hot * 0.5 + 0.5))
+
         for _, h in ipairs(hot) do
             local name = ACI.EventName(h.eventCode)
             local color = h.baseCount >= 5 and "|cFF6600" or h.baseCount >= 3 and "|cFFFF00" or "|cCCCCCC"
             d(color .. string.format("  %d addons, %d regs  %s|r", h.baseCount, h.totalCount, name))
 
-            -- List registered base clusters
+            -- List registered base clusters with cross-hot annotation
             local bases = {}
             for base, count in pairs(h.bases) do
-                table.insert(bases, { base = base, count = count })
+                table.insert(bases, { base = base, count = count, cross = crossRef[base] or 1 })
             end
-            table.sort(bases, function(a, b) return a.count > b.count end)
-            local parts = {}
+            table.sort(bases, function(a, b)
+                if a.cross ~= b.cross then return a.cross > b.cross end
+                return a.count > b.count
+            end)
             for i = 1, math.min(5, #bases) do
                 local b = bases[i]
-                table.insert(parts, b.base .. (b.count > 1 and ("x" .. b.count) or ""))
+                local label = b.base .. (b.count > 1 and ("x" .. b.count) or "")
+                local crossTag
+                if b.cross >= warnThreshold then
+                    crossTag = string.format("  |cFF6600[cross-hot:%d] heavy|r", b.cross)
+                elseif b.cross >= 2 then
+                    crossTag = string.format("  |cFFFF00[cross-hot:%d]|r", b.cross)
+                else
+                    crossTag = ""
+                end
+                d("[ACI]     " .. label .. crossTag)
             end
             if #bases > 5 then
-                table.insert(parts, "... +" .. (#bases - 5))
+                d("[ACI]     ... +" .. (#bases - 5))
             end
-            d("[ACI]     " .. table.concat(parts, ", "))
         end
     end
     d("--------------------------------------------")
@@ -701,10 +728,32 @@ function ACI.DumpToSV()
 
     local health = ACI.ComputeHealthScore()
 
+    -- Hot paths with cross-reference for offline analysis
+    local hot, crossRef = ACI.FindHotPathsWithCrossRef(2, 30)
+    local hotDump = {}
+    for _, h in ipairs(hot) do
+        local bases = {}
+        for base, count in pairs(h.bases) do
+            table.insert(bases, {
+                base     = base,
+                count    = count,
+                crossHot = crossRef[base] or 1,
+            })
+        end
+        table.insert(hotDump, {
+            eventCode  = h.eventCode,
+            eventName  = ACI.EventName(h.eventCode),
+            totalCount = h.totalCount,
+            baseCount  = h.baseCount,
+            bases      = bases,
+        })
+    end
+
     ACI_SavedVars.dump = {
-        ts      = GetTimeString and GetTimeString() or "?",
-        addons  = dump,
-        health  = health,
+        ts       = GetTimeString and GetTimeString() or "?",
+        addons   = dump,
+        health   = health,
+        hotPaths = hotDump,
     }
 
     d("[ACI] Dump saved. Check [\"dump\"] block in SV file after /reloadui.")
@@ -739,7 +788,8 @@ function ACI.PrintHelp()
     d("[ACI]   /aci orphans  unused libraries + de-facto")
     d("[ACI]   /aci missing  missing dependencies + hints")
     d("[ACI]   /aci ood      out-of-date breakdown")
-    d("[ACI]   /aci hot      event hot paths")
+    d("[ACI]   /aci hot      event hot paths (by addon count)")
+    d("[ACI]   /aci hot regs hot paths sorted by registration count")
     d("[ACI]   /aci health   environment diagnosis")
     d("[ACI]   /aci sv       SV registrations + conflicts")
     d("[ACI]   /aci save     force SV save")

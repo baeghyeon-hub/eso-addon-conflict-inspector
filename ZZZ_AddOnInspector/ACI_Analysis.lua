@@ -350,10 +350,11 @@ function ACI.FindEventHotPaths(threshold)
     threshold = threshold or 3
     local perEvent = {}
     for _, e in ipairs(ACI.eventLog) do
-        -- Exclude ACI's own registrations
-        if not ACI.IsSelfNamespace(e.namespace) then
+        -- Exclude ACI's own registrations (check both caller and namespace)
+        if not ACI.IsSelfNamespace(e.namespace) and not ACI.IsSelfNamespace(e.caller) then
             local code = e.eventCode
-            local base = e.namespace:match("^(.-)%d+$") or e.namespace
+            -- Prefer caller (accurate addon folder) over namespace pattern matching
+            local base = e.caller or e.namespace:match("^(.-)%d+$") or e.namespace
             if not perEvent[code] then
                 perEvent[code] = { bases = {}, totalCount = 0 }
             end
@@ -376,6 +377,34 @@ function ACI.FindEventHotPaths(threshold)
     end
     table.sort(hot, function(a, b) return a.baseCount > b.baseCount end)
     return hot
+end
+
+----------------------------------------------------------------------
+-- Hot path cross-reference: for each addon in the top hot events,
+-- count how many distinct hot events it appears in. High counts
+-- (addons registered on many shared events) are performance-bottleneck
+-- candidates worth profiling.
+----------------------------------------------------------------------
+function ACI.FindHotPathsWithCrossRef(threshold, topN)
+    threshold = threshold or 2
+    topN = topN or 10
+    local hot = ACI.FindEventHotPaths(threshold)
+
+    -- Truncate to top N by baseCount
+    local limited = {}
+    for i = 1, math.min(topN, #hot) do
+        limited[i] = hot[i]
+    end
+
+    -- Count: base → number of hot events it appears in
+    local crossRef = {}
+    for _, h in ipairs(limited) do
+        for base, _ in pairs(h.bases) do
+            crossRef[base] = (crossRef[base] or 0) + 1
+        end
+    end
+
+    return limited, crossRef
 end
 
 ----------------------------------------------------------------------
