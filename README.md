@@ -99,29 +99,13 @@ Stop panicking about the "32 out of date" warning. ACI splits OOD addons into th
 
 ## What ACI cannot tell you
 
-ACI is a **diagnostic tool**, not an oracle. Every recommendation it surfaces is derived from signals the ESO Lua API actually exposes at runtime — and that API has significant blind spots. Be aware of them before acting on any output, especially the *review candidates* list in `/aci health`.
+ACI analyzes addon dependencies using the ingame Lua API, which has significant blind spots:
 
-**ACI's view of "dependencies" is manifest-level only.**
+- **OptionalDependsOn is invisible**: `GetAddOnDependencyInfo()` returns only `DependsOn` entries, silently dropping optional dependencies. If addon A optionally depends on addon B, ACI sees no relationship.
+- **Runtime global-function use is invisible**: If addon A calls `LibSomething.Foo()` at runtime without declaring it as a dependency, ACI has no way to detect this.
+- **Manifest-level only**: All analysis is based on .txt manifest files. Addons that wire themselves together through shared globals, hooks, or event subscriptions are invisible to ACI.
 
-- `GetAddOnDependencyInfo()` returns entries declared in an addon's `## DependsOn:` line. That's it.
-- `## OptionalDependsOn:` entries are **not exposed** through the public API in current ESO builds. An addon may legitimately depend on a library optionally (e.g., LibAddonMenu-2.0 for its settings panel) without that relationship being visible to ACI.
-- Runtime dependencies — one addon calling another addon's global functions, consuming its events, or reading its SavedVariables — are completely invisible. There is no API that would let ACI trace them.
-- There is no "did anyone actually `require` this library at load time?" signal. Load-order presence is not proof of use.
-
-**What this means for the review-candidate list:**
-
-- A library can land on the list and still be in active use. If an addon you rely on uses it via `OptionalDependsOn` or via a global function call, ACI has no way to know.
-- The list is a **starting point for manual investigation**, not a deletion queue. ACI deliberately uses the word "review" and prints an API-limitation warning inline next to the list for this reason.
-- Before removing anything flagged as a review candidate, verify in [Minion](https://minion.mmoui.com/), check the addon's own documentation, or disable it temporarily and see what breaks.
-
-**Other things ACI cannot determine:**
-
-- **CPU impact.** `/aci hot` counts event *registrations*, not firings, not handler cost. A high registration count is a hint, not a verdict. Real profiling requires `/script GetGameTimeMilliseconds()` instrumentation or an external profiler.
-- **Memory leaks.** ACI reports SavedVariables *disk* footprint, not in-memory growth over a session.
-- **Runtime conflicts between addons that touch the same global state** without going through `ZO_SavedVars` or `EVENT_MANAGER`.
-- **Whether an out-of-date addon is actually broken on the current patch.** "Out-of-date" is an author-maintained flag in the manifest, not a functional test. Many libraries marked OOD still work fine; some addons marked current are silently broken. ACI reports what the manifest says and lets you decide.
-
-If you're ever unsure, treat ACI's output as "here's what the manifest says — go investigate." It will not make the decision for you.
+For these reasons, any "review candidates" output is a **starting point for manual investigation**, not a list of safe deletions. Always verify in [Minion](https://minion.mmoui.com/) or the addon's own documentation before removing anything.
 
 ---
 
