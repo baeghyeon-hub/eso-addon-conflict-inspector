@@ -89,7 +89,7 @@ S.SV_NO_CONFLICTS       = "[ACI]   충돌 없음"
 S.FMT_SV_DISK_TITLE     = "[ACI] SV 디스크 사용량 — 총 %.2f MB / %d개 애드온"
 S.FMT_SV_DISK_ENTRY     = "[ACI]   %s%s  %s|r%s"
 S.SV_TAG_REVIEW         = " |cFFFF00[검토]|r"
-S.SV_TAG_UNUSED         = " |cFFFF00[미사용]|r"
+S.SV_TAG_UNUSED         = " |cAAAAAA[미사용]|r"
 S.FMT_SV_TAG_DEPS       = " |c00FF00[의존 %d개]|r"
 
 ----------------------------------------------------------------------

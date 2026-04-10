@@ -64,7 +64,7 @@ S.SV_NO_CONFLICTS       = "[ACI]   No conflicts"
 S.FMT_SV_DISK_TITLE     = "[ACI] SV Disk Usage — %.2f MB total across %d addons"
 S.FMT_SV_DISK_ENTRY     = "[ACI]   %s%s  %s|r%s"
 S.SV_TAG_REVIEW         = " |cFFFF00[review]|r"
-S.SV_TAG_UNUSED         = " |cFFFF00[unused]|r"
+S.SV_TAG_UNUSED         = " |cAAAAAA[unused]|r"
 S.FMT_SV_TAG_DEPS       = " |c00FF00[%d deps]|r"
 
 ----------------------------------------------------------------------
