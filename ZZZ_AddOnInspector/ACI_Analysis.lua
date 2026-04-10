@@ -1,84 +1,16 @@
 ----------------------------------------------------------------------
 -- ACI_Analysis.lua — clustering, aggregation, conflict detection
+--
+-- Pure helpers (StripVersionSuffix / Levenshtein / FindClosestMatch /
+-- IsEmbeddedPath) live in ACI_Util.lua and are consumed here as ACI.*.
 ----------------------------------------------------------------------
-
-----------------------------------------------------------------------
--- String matching utilities (typo/missing dep detection)
-----------------------------------------------------------------------
-
--- Strip version suffixes: "LibFoo-2.0" -> "LibFoo", "LibBar-r17" -> "LibBar"
-local function StripVersionSuffix(name)
-    return name:gsub("%-[%d%.]+$", ""):gsub("%-r%d+$", "")
-end
-
--- Levenshtein edit distance (pure Lua, early-exit for large gaps)
-local function Levenshtein(a, b)
-    if a == b then return 0 end
-    local la, lb = #a, #b
-    if la == 0 then return lb end
-    if lb == 0 then return la end
-    if math.abs(la - lb) > 2 then return 99 end
-
-    local prev = {}
-    for j = 0, lb do prev[j] = j end
-
-    for i = 1, la do
-        local curr = { [0] = i }
-        for j = 1, lb do
-            local cost = (a:sub(i, i) == b:sub(j, j)) and 0 or 1
-            curr[j] = math.min(
-                prev[j] + 1,
-                curr[j - 1] + 1,
-                prev[j - 1] + cost
-            )
-        end
-        prev = curr
-    end
-    return prev[lb]
-end
-
--- Find closest match from candidates. Returns (name, distance) or nil.
--- minLen: skip short names to avoid false positives (default 8)
--- maxDist: accept only distances below this (default 3, i.e. <=2)
-local function FindClosestMatch(target, candidates, minLen, maxDist)
-    minLen = minLen or 8
-    maxDist = maxDist or 3
-    if #target < minLen then return nil end
-
-    local best, bestDist = nil, maxDist
-    local tLower = target:lower()
-    for _, c in ipairs(candidates) do
-        if #c >= minLen then
-            local dist = Levenshtein(tLower, c:lower())
-            if dist < bestDist then
-                bestDist = dist
-                best = c
-            end
-        end
-    end
-    return best, bestDist
-end
-
-----------------------------------------------------------------------
--- Embedded sub-addon detection
--- Separation of concerns: Inventory = collection, Analysis = analysis.
--- Uses rootPath stored in metadata table for analysis-phase tagging.
-----------------------------------------------------------------------
-local function IsEmbeddedPath(rootPath)
-    if not rootPath then return false end
-    local mPos = rootPath:find("/AddOns/", 1, true)
-    if not mPos then return false end
-    local afterAddons = rootPath:sub(mPos + 8)  -- #"/AddOns/" = 8
-    local firstSlash = afterAddons:find("/", 1, true)
-    return firstSlash ~= nil and firstSlash < #afterAddons
-end
 
 -- Batch-tag isEmbedded field on metadata.addons entries
 function ACI.TagEmbeddedAddons()
     local meta = ACI_SavedVars and ACI_SavedVars.metadata
     if not meta or not meta.addons then return end
     for _, a in ipairs(meta.addons) do
-        a.isEmbedded = IsEmbeddedPath(a.rootPath)
+        a.isEmbedded = ACI.IsEmbeddedPath(a.rootPath)
     end
 end
 
@@ -235,9 +167,10 @@ function ACI.FindOrphanLibraries()
 
                 -- Tier 2: version-stripped match
                 if not hint then
-                    local stripped = StripVersionSuffix(a.name):lower()
+                    local stripped = ACI.StripVersionSuffix(a.name):lower()
                     for _, depName in ipairs(allDepList) do
-                        if StripVersionSuffix(depName):lower() == stripped and depName ~= a.name then
+                        if ACI.StripVersionSuffix(depName):lower() == stripped
+                                and depName ~= a.name then
                             hint = { type = "version", suggestion = depName }
                             break
                         end
@@ -246,7 +179,7 @@ function ACI.FindOrphanLibraries()
 
                 -- Tier 3: levenshtein distance <= 2
                 if not hint then
-                    local match = FindClosestMatch(a.name, allDepList)
+                    local match = ACI.FindClosestMatch(a.name, allDepList)
                     if match then
                         hint = { type = "typo", suggestion = match }
                     end
@@ -292,9 +225,10 @@ function ACI.FindMissingDependencies()
 
             -- Tier 2: version-stripped match
             if not hint then
-                local stripped = StripVersionSuffix(depName):lower()
+                local stripped = ACI.StripVersionSuffix(depName):lower()
                 for _, installed in ipairs(installedList) do
-                    if StripVersionSuffix(installed):lower() == stripped and installed ~= depName then
+                    if ACI.StripVersionSuffix(installed):lower() == stripped
+                            and installed ~= depName then
                         hint = { type = "version", suggestion = installed }
                         break
                     end
@@ -303,7 +237,7 @@ function ACI.FindMissingDependencies()
 
             -- Tier 3: levenshtein distance <= 2
             if not hint then
-                local match = FindClosestMatch(depName, installedList)
+                local match = ACI.FindClosestMatch(depName, installedList)
                 if match then
                     hint = { type = "typo", suggestion = match }
                 end

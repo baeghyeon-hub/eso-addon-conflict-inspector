@@ -111,7 +111,7 @@ function ACI.PrintStats()
     d(L("SEPARATOR"))
     for i, s in ipairs(sorted) do
         local subInfo = s.subCount > 1 and string.format(L("FMT_SUB_NS"), s.subCount) or ""
-        local color = s.count >= 50 and "|cFF6600" or s.count >= 10 and "|cFFFF00" or "|cCCCCCC"
+        local color = ACI.HeatThreshold(s.count, 50, 10)
         d(color .. string.format("  %3d  %s%s|r", s.count, s.base, subInfo))
     end
     d(L("SEPARATOR"))
@@ -247,7 +247,7 @@ function ACI.PrintSV()
                 else
                     sizeStr = string.format("%.1f KB", s.mb * 1024)
                 end
-                local color = s.mb >= 1 and "|cFF6600" or s.mb >= 0.1 and "|cFFFF00" or "|cCCCCCC"
+                local color = ACI.HeatThreshold(s.mb, 1, 0.1)
 
                 local tag = ""
                 if s.isLibrary and s.isOrphan and s.isOOD then
@@ -280,7 +280,7 @@ function ACI.PrintInitTimes()
     d(L("SEPARATOR"))
     for i = 1, math.min(10, #times) do
         local t = times[i]
-        local color = t.initMs >= 500 and "|cFF0000" or t.initMs >= 100 and "|cFFFF00" or "|cCCCCCC"
+        local color = ACI.SeverityThreshold(t.initMs, 500, 100)
         d(color .. string.format(L("FMT_INIT_ENTRY"), t.initMs, t.index, t.addon))
     end
     d(L("SEPARATOR"))
@@ -466,7 +466,7 @@ function ACI.PrintHotPaths(mode)
 
         for _, h in ipairs(hot) do
             local name = ACI.EventName(h.eventCode)
-            local color = h.baseCount >= 5 and "|cFF6600" or h.baseCount >= 3 and "|cFFFF00" or "|cCCCCCC"
+            local color = ACI.HeatThreshold(h.baseCount, 5, 3)
             d(color .. string.format(L("FMT_HOT_EVENT"), h.baseCount, h.totalCount, name))
 
             local bases = {}
@@ -559,9 +559,7 @@ function ACI.PrintHealth()
     local h = ACI.ComputeHealthScore()
     local s = h.stats
 
-    local color = h.level == "red" and "|cFF0000"
-        or h.level == "yellow" and "|cFFFF00"
-        or "|c00FF00"
+    local color = ACI.LevelColor(h.level)
     local label = h.level == "red" and L("HEALTH_LABEL_RED")
         or h.level == "yellow" and L("HEALTH_LABEL_YELLOW")
         or L("HEALTH_LABEL_GREEN")
@@ -614,7 +612,7 @@ function ACI.PrintHealth()
     if #otherIssues > 0 then
         d("[ACI]")
         for _, i in ipairs(otherIssues) do
-            local c = i.level == "red" and "|cFF0000" or i.level == "yellow" and "|cFFFF00" or "|cCCCCCC"
+            local c = ACI.LevelColor(i.level)
             d(string.format(L("FMT_HEALTH_ISSUE"), c, i.msg))
         end
     end
