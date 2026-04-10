@@ -6,6 +6,8 @@
 
 ![Health diagnosis](screenshot/8.png)
 
+> **Distribution:** ACI will be published on [ESOUI](https://www.esoui.com/) as the official end-user channel. This GitHub repository is the development source — grab the packaged release from ESOUI once it's live, or build from source here.
+
 ---
 
 ## What it does
