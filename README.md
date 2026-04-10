@@ -4,7 +4,7 @@
 
 `/aci health` gives you a traffic-light diagnosis: out-of-date addons that actually need attention (vs. abandoned libraries that don't), unused libraries you can safely delete, SavedVariables conflicts, missing dependencies, and the addons hogging your disk space — all in one screen.
 
-![Health diagnosis](screenshot/8.png)
+![Health diagnosis](screenshot/0%20fix.png)
 
 > **Distribution:** ACI will be published on [ESOUI](https://www.esoui.com/) as the official end-user channel. This GitHub repository is the development source — grab the packaged release from ESOUI once it's live, or build from source here.
 
@@ -47,7 +47,7 @@ The first thing to type. Loaded addon count, current API version, out-of-date co
 
 The headline command. Splits your out-of-date addons into *ignorable* (libraries, embedded sub-addons) and *attention* (standalone addons that actually need updating). If any libraries look inactive by manifest-level signals, they show up as **review candidates** with an explicit warning that the ESO Lua API cannot see runtime dependencies — verify in Minion or the addon's own documentation before touching anything.
 
-![Health](screenshot/8.png)
+![Health](screenshot/2%20fix.png)
 
 ### `/aci sv` — SavedVariables analysis
 

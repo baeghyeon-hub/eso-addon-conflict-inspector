@@ -15,8 +15,9 @@ ZZZ_AddOnInspector-*.zip
 
 # Screenshots: only README-referenced ones are tracked
 screenshot/*.png
+!screenshot/0 fix.png
 !screenshot/1.png
+!screenshot/2 fix.png
 !screenshot/5.png
 !screenshot/6.png
 !screenshot/7.png
-!screenshot/8.png
