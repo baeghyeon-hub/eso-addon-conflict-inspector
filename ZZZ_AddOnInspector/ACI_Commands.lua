@@ -2,6 +2,8 @@
 -- ACI_Commands.lua — /aci slash command system
 ----------------------------------------------------------------------
 
+local L = function(k) return ACI.L(k) end
+
 function ACI.RegisterCommands()
     SLASH_COMMANDS["/aci"] = function(args)
         args = (args or ""):lower():match("^%s*(.-)%s*$")
@@ -39,7 +41,7 @@ function ACI.RegisterCommands()
         elseif args == "help" then
             ACI.PrintHelp()
         else
-            d("[ACI] Unknown command: " .. args)
+            d(string.format(L("FMT_UNKNOWN_CMD"), args))
             ACI.PrintHelp()
         end
     end
@@ -65,7 +67,6 @@ function ACI.PrintReport()
 
     local totalSV = 0
     for key, entries in pairs(ACI.svRegistrations) do
-        -- Exclude ACI's own SV registrations from count
         for _, e in ipairs(entries) do
             if not ACI.IsSelfNamespace(e.caller) then
                 totalSV = totalSV + 1
@@ -73,30 +74,30 @@ function ACI.PrintReport()
         end
     end
 
-    d("--------------------------------------------")
-    d("[ACI] Addon Environment Report (live)")
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
+    d(L("REPORT_TITLE"))
+    d(L("SEPARATOR"))
 
     local meta = ACI_SavedVars and ACI_SavedVars.metadata
-    local apiStr = meta and meta.currentAPI and (" (API " .. tostring(meta.currentAPI) .. ")") or ""
+    local apiStr = meta and meta.currentAPI and string.format(L("FMT_REPORT_API"), tostring(meta.currentAPI)) or ""
     local oodStr = meta and meta.outOfDateCount and meta.outOfDateCount > 0
-        and ("  |cFFFF00" .. meta.outOfDateCount .. " out-of-date|r") or ""
+        and string.format(L("FMT_REPORT_OOD"), meta.outOfDateCount) or ""
 
-    d("[ACI] Loaded: " .. tostring(#ACI.loadOrder) .. " addons" .. apiStr .. ", ACI=#" .. tostring(aciLoadIndex or "?") .. oodStr)
+    d(string.format(L("FMT_REPORT_LOADED"), #ACI.loadOrder, apiStr, tostring(aciLoadIndex or "?"), oodStr))
 
-    d("[ACI] Events: |c00FF00" .. tostring(ACI.EventCountExcludingSelf()) .. "|r registrations, " .. tostring(#sorted) .. " clusters")
+    d(string.format(L("FMT_REPORT_EVENTS"), ACI.EventCountExcludingSelf(), #sorted))
     for i = 1, math.min(5, #sorted) do
         local s = sorted[i]
         local suffix = s.count > 1 and (" (" .. s.count .. ")") or ""
-        d("[ACI]   " .. s.base .. suffix)
+        d(string.format(L("FMT_REPORT_CLUSTER"), s.base, suffix))
     end
     if #sorted > 5 then
-        d("[ACI]   ... +" .. (#sorted - 5) .. " more")
+        d(string.format(L("FMT_MORE"), #sorted - 5))
     end
 
-    d("[ACI] SV: " .. tostring(totalSV) .. " registrations, " .. tostring(#svConflicts) .. " conflicts")
-    d("[ACI] Type /aci help for all commands")
-    d("--------------------------------------------")
+    d(string.format(L("FMT_REPORT_SV"), totalSV, #svConflicts))
+    d(L("REPORT_HELP_HINT"))
+    d(L("SEPARATOR"))
 end
 
 ----------------------------------------------------------------------
@@ -105,15 +106,15 @@ end
 function ACI.PrintStats()
     local sorted = ACI.SortedClusters()
 
-    d("--------------------------------------------")
-    d("[ACI] Event Registration Stats — " .. tostring(ACI.EventCountExcludingSelf()) .. " total (live)")
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
+    d(string.format(L("FMT_STATS_TITLE"), ACI.EventCountExcludingSelf()))
+    d(L("SEPARATOR"))
     for i, s in ipairs(sorted) do
-        local subInfo = s.subCount > 1 and (" [" .. s.subCount .. " sub-ns]") or ""
+        local subInfo = s.subCount > 1 and string.format(L("FMT_SUB_NS"), s.subCount) or ""
         local color = s.count >= 50 and "|cFF6600" or s.count >= 10 and "|cFFFF00" or "|cCCCCCC"
         d(color .. string.format("  %3d  %s%s|r", s.count, s.base, subInfo))
     end
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
 end
 
 ----------------------------------------------------------------------
@@ -122,7 +123,7 @@ end
 function ACI.PrintAddons()
     local meta = ACI_SavedVars.metadata
     if not meta or not meta.addons then
-        d("[ACI] No metadata. Use after PLAYER_ACTIVATED.")
+        d(L("NO_METADATA_PA"))
         return
     end
 
@@ -141,24 +142,24 @@ function ACI.PrintAddons()
         end
     end
 
-    d("--------------------------------------------")
-    d("[ACI] Addon List — " .. tostring(meta.numAddons) .. " total (enabled " .. tostring(#addons + #libs) .. ", disabled " .. tostring(#disabled) .. ")")
+    d(L("SEPARATOR"))
+    d(string.format(L("FMT_ADDONS_TITLE"), meta.numAddons, #addons + #libs, #disabled))
     if outOfDate > 0 then
-        d("[ACI] |cFFFF00Out-of-date: " .. tostring(outOfDate) .. "|r")
+        d(string.format(L("FMT_ADDONS_OOD"), outOfDate))
     end
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
 
-    d("[ACI] |c00FF00Addons (" .. #addons .. ")|r")
+    d(string.format(L("FMT_ADDONS_HEADER"), #addons))
     for _, a in ipairs(addons) do
         local flag = a.isOutOfDate and "|cFFFF00!|r " or "  "
-        d("[ACI] " .. flag .. a.name .. "  v" .. tostring(a.version))
+        d(string.format(L("FMT_ADDON_ENTRY"), flag, a.name, tostring(a.version)))
     end
 
-    d("[ACI] |c8888FF Libraries (" .. #libs .. ")|r")
+    d(string.format(L("FMT_LIBS_HEADER"), #libs))
     for _, a in ipairs(libs) do
         d("[ACI]   " .. a.name)
     end
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
 end
 
 ----------------------------------------------------------------------
@@ -179,14 +180,13 @@ function ACI.PrintSV()
         if hasForeign then uniquePairs = uniquePairs + 1 end
     end
 
-    d("--------------------------------------------")
-    d("[ACI] SavedVariables — " .. tostring(totalSV) .. " registrations, " .. tostring(uniquePairs) .. " unique pairs")
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
+    d(string.format(L("FMT_SV_HEADER"), totalSV, uniquePairs))
+    d(L("SEPARATOR"))
 
     for key, entries in pairs(ACI.svRegistrations) do
         local callers = {}
         for _, e in ipairs(entries) do
-            -- Exclude ACI's own SV from listing
             if not ACI.IsSelfNamespace(e.caller) then
                 callers[e.caller] = true
             end
@@ -196,23 +196,22 @@ function ACI.PrintSV()
             for c in pairs(callers) do
                 callerStr = callerStr .. (callerStr ~= "" and ", " or "") .. c
             end
-            d("[ACI]   " .. key .. " <- " .. callerStr)
+            d(string.format(L("FMT_SV_ENTRY"), key, callerStr))
         end
     end
 
     if #conflicts > 0 then
-        d("[ACI] |cFF0000Conflicts: " .. #conflicts .. "|r")
+        d(string.format(L("FMT_SV_CONFLICT_HEAD"), #conflicts))
         for _, c in ipairs(conflicts) do
-            d("[ACI]   " .. c.key .. " <- " .. table.concat(c.callers, " vs "))
+            d(string.format(L("FMT_SV_CONFLICT_LINE"), c.key, table.concat(c.callers, " vs ")))
         end
     else
-        d("[ACI]   No conflicts")
+        d(L("SV_NO_CONFLICTS"))
     end
 
     -- SV disk usage (top 10 by size)
     local meta = ACI_SavedVars and ACI_SavedVars.metadata
     if meta and meta.addons then
-        -- Build dependency index for dependent counts
         local depIndex = ACI.BuildDependencyIndex()
         local orphanSet = {}
         local orphans = ACI.FindOrphanLibraries()
@@ -238,7 +237,7 @@ function ACI.PrintSV()
 
         if #svSizes > 0 then
             d("[ACI]")
-            d(string.format("[ACI] SV Disk Usage — %.2f MB total across %d addons", totalMB, #svSizes))
+            d(string.format(L("FMT_SV_DISK_TITLE"), totalMB, #svSizes))
             local limit = math.min(10, #svSizes)
             for i = 1, limit do
                 local s = svSizes[i]
@@ -250,25 +249,24 @@ function ACI.PrintSV()
                 end
                 local color = s.mb >= 1 and "|cFF6600" or s.mb >= 0.1 and "|cFFFF00" or "|cCCCCCC"
 
-                -- Value/waste tag
                 local tag = ""
                 if s.isLibrary and s.isOrphan and s.isOOD then
-                    tag = " |cFF0000[waste]|r"
+                    tag = L("SV_TAG_WASTE")
                 elseif s.isLibrary and s.isOrphan then
-                    tag = " |cFFFF00[unused]|r"
+                    tag = L("SV_TAG_UNUSED")
                 elseif s.isLibrary and s.dependents > 0 then
-                    tag = string.format(" |c00FF00[%d deps]|r", s.dependents)
+                    tag = string.format(L("FMT_SV_TAG_DEPS"), s.dependents)
                 end
 
-                d(string.format("[ACI]   %s%s  %s|r%s", color, sizeStr, s.name, tag))
+                d(string.format(L("FMT_SV_DISK_ENTRY"), color, sizeStr, s.name, tag))
             end
             if #svSizes > 10 then
-                d("[ACI]   ... +" .. (#svSizes - 10) .. " more")
+                d(string.format(L("FMT_MORE"), #svSizes - 10))
             end
         end
     end
 
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
 end
 
 ----------------------------------------------------------------------
@@ -277,15 +275,15 @@ end
 function ACI.PrintInitTimes()
     local times = ACI.EstimateInitTimes()
 
-    d("--------------------------------------------")
-    d("[ACI] Addon Init Time Estimation (top 10)")
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
+    d(L("INIT_TITLE"))
+    d(L("SEPARATOR"))
     for i = 1, math.min(10, #times) do
         local t = times[i]
         local color = t.initMs >= 500 and "|cFF0000" or t.initMs >= 100 and "|cFFFF00" or "|cCCCCCC"
-        d(color .. string.format("  %5dms  load#%d %s|r", t.initMs, t.index, t.addon))
+        d(color .. string.format(L("FMT_INIT_ENTRY"), t.initMs, t.index, t.addon))
     end
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
 end
 
 ----------------------------------------------------------------------
@@ -294,12 +292,11 @@ end
 function ACI.PrintDeps(name)
     local depIndex = ACI.BuildDependencyIndex()
     if not depIndex then
-        d("[ACI] No metadata. Use after PLAYER_ACTIVATED.")
+        d(L("NO_METADATA_PA"))
         return
     end
 
     if name then
-        -- Specific addon: forward + reverse deps (case-insensitive match)
         local matchedName = nil
         for n in pairs(depIndex.byName) do
             if n:lower() == name:lower() then
@@ -308,7 +305,7 @@ function ACI.PrintDeps(name)
             end
         end
         if not matchedName then
-            d("[ACI] '" .. name .. "' not found.")
+            d(string.format(L("FMT_DEPS_NOT_FOUND"), name))
             return
         end
 
@@ -316,54 +313,52 @@ function ACI.PrintDeps(name)
         local fwd = depIndex.forward[matchedName] or {}
         local rev = depIndex.reverse[matchedName] or {}
 
-        d("--------------------------------------------")
-        d("[ACI] " .. matchedName .. (addon.isLibrary and " |c8888FF[Library]|r" or ""))
-        d("--------------------------------------------")
+        d(L("SEPARATOR"))
+        d("[ACI] " .. matchedName .. (addon.isLibrary and L("LABEL_LIBRARY") or ""))
+        d(L("SEPARATOR"))
 
-        d("[ACI] Dependencies (needs): " .. tostring(#fwd))
+        d(string.format(L("FMT_DEPS_NEEDS"), #fwd))
         if #fwd > 0 then
             for _, depName in ipairs(fwd) do
                 local depAddon = depIndex.byName[depName]
-                local status = depAddon and (depAddon.enabled and "|c00FF00OK|r" or "|cFF0000OFF|r") or "|cFF0000MISSING|r"
+                local status = depAddon and (depAddon.enabled and L("DEP_OK") or L("DEP_OFF")) or L("DEP_MISSING")
                 d("[ACI]   " .. depName .. " " .. status)
             end
         end
 
-        d("[ACI] Reverse deps (used by): " .. tostring(#rev))
+        d(string.format(L("FMT_DEPS_REVERSE"), #rev))
         if #rev > 0 then
             for _, userName in ipairs(rev) do
                 d("[ACI]   " .. userName)
             end
         end
-        d("--------------------------------------------")
+        d(L("SEPARATOR"))
     else
-        -- Overview: most-used libraries top 15
         local sorted = {}
         for depName, users in pairs(depIndex.reverse) do
             table.insert(sorted, { name = depName, count = #users })
         end
         table.sort(sorted, function(a, b) return a.count > b.count end)
 
-        d("--------------------------------------------")
-        d("[ACI] Dependency Summary — most depended-on libraries")
-        d("--------------------------------------------")
+        d(L("SEPARATOR"))
+        d(L("DEPS_SUMMARY_TITLE"))
+        d(L("SEPARATOR"))
         for i = 1, math.min(15, #sorted) do
             local s = sorted[i]
-            d(string.format("[ACI]   %3d dependents  %s", s.count, s.name))
+            d(string.format(L("FMT_DEPS_DEPENDENT"), s.count, s.name))
         end
         if #sorted > 15 then
-            d("[ACI]   ... +" .. (#sorted - 15) .. " more")
+            d(string.format(L("FMT_MORE"), #sorted - 15))
         end
 
-        -- Addons with no dependencies
         local noDeps = {}
         for name, fwd in pairs(depIndex.forward) do
             if #fwd == 0 then
                 table.insert(noDeps, name)
             end
         end
-        d("[ACI] Addons with no dependencies: " .. tostring(#noDeps))
-        d("--------------------------------------------")
+        d(string.format(L("FMT_DEPS_NO_DEPS"), #noDeps))
+        d(L("SEPARATOR"))
     end
 end
 
@@ -374,21 +369,21 @@ function ACI.PrintOrphans()
     local orphans = ACI.FindOrphanLibraries()
     local deFacto = ACI.FindDeFactoLibraries(3)
 
-    d("--------------------------------------------")
-    d("[ACI] Library Analysis")
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
+    d(L("ORPHANS_TITLE"))
+    d(L("SEPARATOR"))
 
     if #orphans > 0 then
-        d("[ACI] |cFFFF00Unused libraries (" .. #orphans .. ")|r — no enabled addon depends on these:")
+        d(string.format(L("FMT_ORPHANS_HEADER"), #orphans))
         for _, o in ipairs(orphans) do
             if o.hint then
                 local tag
                 if o.hint.type == "case" then
-                    tag = "|cFF6600<- case mismatch? " .. o.hint.suggestion .. "|r"
+                    tag = string.format(L("FMT_HINT_CASE"), o.hint.suggestion)
                 elseif o.hint.type == "version" then
-                    tag = "|cFF6600<- version mismatch? " .. o.hint.suggestion .. "|r"
+                    tag = string.format(L("FMT_HINT_VERSION"), o.hint.suggestion)
                 else
-                    tag = "|cFFFF00<- typo? " .. o.hint.suggestion .. "|r"
+                    tag = string.format(L("FMT_HINT_TYPO"), o.hint.suggestion)
                 end
                 d("[ACI]   " .. o.name .. " " .. tag)
             else
@@ -396,16 +391,16 @@ function ACI.PrintOrphans()
             end
         end
     else
-        d("[ACI] |c00FF00No unused libraries|r")
+        d(L("ORPHANS_NONE"))
     end
 
     if #deFacto > 0 then
-        d("[ACI] |c8888FFDe-facto libraries|r — not flagged as library but multiple addons depend on:")
+        d(L("DEFACTO_HEADER"))
         for _, df in ipairs(deFacto) do
-            d("[ACI]   " .. df.name .. " (" .. df.userCount .. " dependents)")
+            d(string.format(L("FMT_DEFACTO_ENTRY"), df.name, df.userCount))
         end
     end
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
 end
 
 ----------------------------------------------------------------------
@@ -414,37 +409,33 @@ end
 function ACI.PrintMissingDeps()
     local missing = ACI.FindMissingDependencies()
 
-    d("--------------------------------------------")
-    d("[ACI] Missing Dependencies")
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
+    d(L("MISSING_TITLE"))
+    d(L("SEPARATOR"))
 
     if #missing == 0 then
-        d("[ACI] |c00FF00No missing dependencies|r")
+        d(L("MISSING_NONE"))
     else
-        d("[ACI] |cFFFF00" .. #missing .. " dep(s) declared but not installed:|r")
+        d(string.format(L("FMT_MISSING_HEADER"), #missing))
         for _, m in ipairs(missing) do
-            local line = "[ACI]   " .. m.name .. " (" .. #m.users .. " addon(s) need this)"
-            d(line)
+            d(string.format(L("FMT_MISSING_ENTRY"), m.name, #m.users))
 
             if m.hint then
-                local tag
                 if m.hint.type == "case" then
-                    tag = "|cFF6600  -> case mismatch: " .. m.hint.suggestion .. " is installed|r"
+                    d(string.format(L("FMT_MISSING_HINT_CASE"), m.hint.suggestion))
                 elseif m.hint.type == "version" then
-                    tag = "|cFF6600  -> version mismatch: " .. m.hint.suggestion .. " is installed|r"
+                    d(string.format(L("FMT_MISSING_HINT_VERSION"), m.hint.suggestion))
                 else
-                    tag = "|cFFFF00  -> typo? " .. m.hint.suggestion .. " is installed|r"
+                    d(string.format(L("FMT_MISSING_HINT_TYPO"), m.hint.suggestion))
                 end
-                d("[ACI] " .. tag)
             end
 
-            -- List which addons need this dep
             for _, u in ipairs(m.users) do
-                d("[ACI]     <- " .. u)
+                d(string.format(L("FMT_MISSING_USER"), u))
             end
         end
     end
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
 end
 
 ----------------------------------------------------------------------
@@ -454,7 +445,6 @@ function ACI.PrintHotPaths(mode)
     mode = mode or "addons"
     local hot, crossRef = ACI.FindHotPathsWithCrossRef(2, 30)
 
-    -- Re-sort by reg count if requested, then truncate to 10
     if mode == "regs" then
         table.sort(hot, function(a, b) return a.totalCount > b.totalCount end)
     end
@@ -463,24 +453,22 @@ function ACI.PrintHotPaths(mode)
     for i = 1, limit do truncated[i] = hot[i] end
     hot = truncated
 
-    local title = (mode == "regs") and "top 10 by registration count" or "top 10 by addon count"
-    d("--------------------------------------------")
-    d("[ACI] Event Hot Paths — " .. title)
-    d("|cAAAAAA(registration count, not firing frequency. CPU impact requires profiling.)|r")
-    d("--------------------------------------------")
+    local title = (mode == "regs") and L("HOT_TITLE_BY_REGS") or L("HOT_TITLE_BY_ADDONS")
+    d(L("SEPARATOR"))
+    d(string.format(L("FMT_HOT_TITLE"), title))
+    d(L("HOT_DISCLAIMER"))
+    d(L("SEPARATOR"))
 
     if #hot == 0 then
-        d("[ACI] No hot paths")
+        d(L("HOT_NONE"))
     else
-        -- Threshold for cross-hot warning: addon appears in >=50% of listed hot events
         local warnThreshold = math.max(3, math.floor(#hot * 0.5 + 0.5))
 
         for _, h in ipairs(hot) do
             local name = ACI.EventName(h.eventCode)
             local color = h.baseCount >= 5 and "|cFF6600" or h.baseCount >= 3 and "|cFFFF00" or "|cCCCCCC"
-            d(color .. string.format("  %d addons, %d regs  %s|r", h.baseCount, h.totalCount, name))
+            d(color .. string.format(L("FMT_HOT_EVENT"), h.baseCount, h.totalCount, name))
 
-            -- List registered base clusters with cross-hot annotation
             local bases = {}
             for base, count in pairs(h.bases) do
                 table.insert(bases, { base = base, count = count, cross = crossRef[base] or 1 })
@@ -494,9 +482,9 @@ function ACI.PrintHotPaths(mode)
                 local label = b.base .. (b.count > 1 and ("x" .. b.count) or "")
                 local crossTag
                 if b.cross >= warnThreshold then
-                    crossTag = string.format("  |cFF6600[cross-hot:%d] heavy|r", b.cross)
+                    crossTag = string.format(L("FMT_TAG_CROSS_HEAVY"), b.cross)
                 elseif b.cross >= 2 then
-                    crossTag = string.format("  |cFFFF00[cross-hot:%d]|r", b.cross)
+                    crossTag = string.format(L("FMT_TAG_CROSS"), b.cross)
                 else
                     crossTag = ""
                 end
@@ -507,7 +495,7 @@ function ACI.PrintHotPaths(mode)
             end
         end
     end
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
 end
 
 ----------------------------------------------------------------------
@@ -516,55 +504,52 @@ end
 function ACI.PrintOOD()
     local ood = ACI.ClassifyOOD()
     if not ood then
-        d("[ACI] No metadata.")
+        d(L("NO_METADATA"))
         return
     end
 
     local pct = math.floor(ood.oodRatio * 100 + 0.5)
 
-    d("--------------------------------------------")
-    d("[ACI] Out-of-Date Breakdown")
-    d(string.format("[ACI] %d/%d top-level (%d%%)", ood.topLevelOOD, ood.topLevelEnabled, pct))
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
+    d(L("OOD_TITLE"))
+    d(string.format(L("FMT_OOD_RATIO"), ood.topLevelOOD, ood.topLevelEnabled, pct))
+    d(L("SEPARATOR"))
 
-    -- Standalone addons — user action needed
     if #ood.standalone > 0 then
-        d("[ACI] |cFFFF00Standalone addons (" .. #ood.standalone .. ")|r — update recommended:")
+        d(string.format(L("FMT_OOD_STANDALONE_HEAD"), #ood.standalone))
         for _, name in ipairs(ood.standalone) do
             d("[ACI]   " .. name)
         end
     else
-        d("[ACI] |c00FF00No standalone addons out-of-date|r")
+        d(L("OOD_STANDALONE_NONE"))
     end
 
     d("[ACI]")
 
-    -- Libraries — author abandoned, usually harmless
     if #ood.libOnly > 0 then
-        d("[ACI] |cCCCCCCLibraries (" .. #ood.libOnly .. ")|r — author outdated, usually harmless:")
+        d(string.format(L("FMT_OOD_LIBONLY_HEAD"), #ood.libOnly))
         for _, lib in ipairs(ood.libOnly) do
             local depStr = lib.dependents > 0
-                and (" |c888888(" .. lib.dependents .. " dependents)|r")
+                and string.format(L("FMT_LIB_DEPENDENTS"), lib.dependents)
                 or ""
             d("[ACI]   " .. lib.name .. depStr)
         end
     else
-        d("[ACI] |c00FF00No libraries out-of-date|r")
+        d(L("OOD_LIBONLY_NONE"))
     end
 
     d("[ACI]")
 
-    -- Embedded — bundled, ignore
     if #ood.embedded > 0 then
-        d("[ACI] |c666666Embedded (" .. #ood.embedded .. ")|r — bundled sub-addons, ignore:")
+        d(string.format(L("FMT_OOD_EMBEDDED_HEAD"), #ood.embedded))
         for _, name in ipairs(ood.embedded) do
             d("[ACI]   " .. name)
         end
     else
-        d("[ACI] |c00FF00No embedded sub-addons out-of-date|r")
+        d(L("OOD_EMBEDDED_NONE"))
     end
 
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
 end
 
 ----------------------------------------------------------------------
@@ -577,60 +562,51 @@ function ACI.PrintHealth()
     local color = h.level == "red" and "|cFF0000"
         or h.level == "yellow" and "|cFFFF00"
         or "|c00FF00"
-    local label = h.level == "red" and "Issues Found"
-        or h.level == "yellow" and "Warning"
-        or "Healthy"
+    local label = h.level == "red" and L("HEALTH_LABEL_RED")
+        or h.level == "yellow" and L("HEALTH_LABEL_YELLOW")
+        or L("HEALTH_LABEL_GREEN")
 
-    d("--------------------------------------------")
-    d("[ACI] " .. color .. "● " .. label .. "|r")
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
+    d(string.format(L("FMT_HEALTH_HEADER"), color, label))
+    d(L("SEPARATOR"))
 
-    -- OOD segmented breakdown
     local ood = h.ood
     if ood then
         local pct = math.floor(ood.oodRatio * 100 + 0.5)
-        d(string.format("[ACI] Out-of-date: %d/%d top-level (%d%%)",
-            ood.topLevelOOD, ood.topLevelEnabled, pct))
+        d(string.format(L("FMT_HEALTH_OOD"), ood.topLevelOOD, ood.topLevelEnabled, pct))
 
-        -- Ignorable section
         local ignorable = #ood.libOnly + #ood.embedded
         if ignorable > 0 then
-            d(string.format("[ACI]   |cCCCCCCIgnorable: %d libraries + %d embedded|r",
-                #ood.libOnly, #ood.embedded))
+            d(string.format(L("FMT_HEALTH_IGNORABLE"), #ood.libOnly, #ood.embedded))
         end
 
-        -- Attention section: standalone addons
         if #ood.standalone > 0 then
-            d(string.format("[ACI]   |cFFFF00Attention: %d standalone addon(s)|r", #ood.standalone))
-            -- Show up to 5 names inline
+            d(string.format(L("FMT_HEALTH_ATTENTION"), #ood.standalone))
             local names = {}
             for i = 1, math.min(5, #ood.standalone) do
                 table.insert(names, ood.standalone[i])
             end
-            local suffix = #ood.standalone > 5 and (" +" .. (#ood.standalone - 5) .. " more") or ""
-            d("[ACI]     " .. table.concat(names, ", ") .. suffix)
+            local suffix = #ood.standalone > 5 and string.format(L("FMT_HEALTH_NAMES_MORE"), #ood.standalone - 5) or ""
+            d(string.format(L("FMT_HEALTH_NAMES"), table.concat(names, ", "), suffix))
         end
 
-        -- Ratio-based context
         local ctx
         if ood.oodRatio > 0.8 then
-            ctx = "Major patch or long-neglected"
+            ctx = L("HEALTH_CTX_MAJOR")
         elseif ood.oodRatio > 0.5 then
-            ctx = "Normal after patch (1-2 months)"
+            ctx = L("HEALTH_CTX_PATCH")
         elseif ood.oodRatio > 0.2 then
-            ctx = "Normal"
+            ctx = L("HEALTH_CTX_NORMAL")
         else
-            ctx = "Well maintained"
+            ctx = L("HEALTH_CTX_WELL")
         end
-        d("[ACI]   -> " .. ctx)
-        d("[ACI]   Full breakdown: /aci ood")
+        d(string.format(L("FMT_HEALTH_CTX"), ctx))
+        d(L("HEALTH_FULL_BREAKDOWN"))
     end
 
-    -- Other issues (SV conflicts, orphans, missing deps, etc.)
     local otherIssues = {}
     for _, i in ipairs(h.issues) do
-        -- OOD already shown above, skip it
-        if not i.msg:find("out%-of%-date") then
+        if i.kind ~= "ood" then
             table.insert(otherIssues, i)
         end
     end
@@ -639,36 +615,35 @@ function ACI.PrintHealth()
         d("[ACI]")
         for _, i in ipairs(otherIssues) do
             local c = i.level == "red" and "|cFF0000" or i.level == "yellow" and "|cFFFF00" or "|cCCCCCC"
-            d("[ACI] " .. c .. "●|r " .. i.msg)
+            d(string.format(L("FMT_HEALTH_ISSUE"), c, i.msg))
         end
     end
 
-    -- Safe-to-delete: orphan AND out-of-date (sorted by SV size)
     local safeToDelete, saveMB = ACI.FindSafeToDelete()
     if #safeToDelete > 0 then
         d("[ACI]")
         local saveStr = saveMB > 0
-            and string.format(" — saves %.1f KB", saveMB * 1024)
+            and string.format(L("FMT_SAFE_DELETE_SAVES"), saveMB * 1024)
             or ""
-        d("[ACI] |cFF6600● Safe to delete (" .. #safeToDelete .. ")|r — unused AND outdated:" .. saveStr)
-        for _, s in ipairs(safeToDelete) do
+        d(string.format(L("FMT_SAFE_DELETE_HEADER"), #safeToDelete, saveStr))
+        for _, sd in ipairs(safeToDelete) do
             local sizeTag = ""
-            if s.svDiskMB and s.svDiskMB > 0 then
-                if s.svDiskMB >= 1 then
-                    sizeTag = string.format(" |c888888(%.2f MB)|r", s.svDiskMB)
+            if sd.svDiskMB and sd.svDiskMB > 0 then
+                if sd.svDiskMB >= 1 then
+                    sizeTag = string.format(L("FMT_SAFE_DELETE_SIZE_MB"), sd.svDiskMB)
                 else
-                    sizeTag = string.format(" |c888888(%.1f KB)|r", s.svDiskMB * 1024)
+                    sizeTag = string.format(L("FMT_SAFE_DELETE_SIZE_KB"), sd.svDiskMB * 1024)
                 end
             end
-            d("[ACI]   " .. s.name .. sizeTag)
+            d(string.format(L("FMT_SAFE_DELETE_ENTRY"), sd.name, sizeTag))
         end
-        d("[ACI]   |cCCCCCC^ No dependents, no updates. Zero-risk removal.|r")
+        d(L("SAFE_DELETE_NOTE"))
     end
 
     d("[ACI]")
-    d("[ACI] Events: " .. tostring(ACI.EventCountExcludingSelf()) .. ", hot paths " .. tostring(s.hotPaths))
-    d("[ACI] Details: /aci orphans | /aci missing | /aci ood | /aci sv")
-    d("--------------------------------------------")
+    d(string.format(L("FMT_HEALTH_EVENTS"), ACI.EventCountExcludingSelf(), s.hotPaths))
+    d(L("HEALTH_DETAILS"))
+    d(L("SEPARATOR"))
 end
 
 ----------------------------------------------------------------------
@@ -677,25 +652,25 @@ end
 function ACI.PrintDebug()
     local meta = ACI_SavedVars and ACI_SavedVars.metadata
     if not meta or not meta.addons then
-        d("[ACI] No metadata.")
+        d(L("NO_METADATA"))
         return
     end
 
     ACI.TagEmbeddedAddons()
 
-    d("--------------------------------------------")
-    d("[ACI] Debug — embedded status")
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
+    d(L("DEBUG_TITLE"))
+    d(L("SEPARATOR"))
 
     local embCount = 0
     for _, a in ipairs(meta.addons) do
         if a.enabled and a.isEmbedded then
             embCount = embCount + 1
-            d("[ACI]   EMB  " .. a.name .. "  <-  " .. (a.rootPath or "?"))
+            d(string.format(L("FMT_DEBUG_EMB_LINE"), a.name, a.rootPath or "?"))
         end
     end
-    d("[ACI] embedded: " .. embCount .. " / " .. tostring(meta.enabledCount or "?") .. " enabled")
-    d("--------------------------------------------")
+    d(string.format(L("FMT_DEBUG_EMB_TOTAL"), embCount, tostring(meta.enabledCount or "?")))
+    d(L("SEPARATOR"))
 end
 
 ----------------------------------------------------------------------
@@ -704,11 +679,10 @@ end
 function ACI.DumpToSV()
     local meta = ACI_SavedVars and ACI_SavedVars.metadata
     if not meta or not meta.addons then
-        d("[ACI] No metadata.")
+        d(L("NO_METADATA"))
         return
     end
 
-    -- Recalculate embedded tags from stored rootPath
     ACI.TagEmbeddedAddons()
 
     local dump = {}
@@ -728,7 +702,6 @@ function ACI.DumpToSV()
 
     local health = ACI.ComputeHealthScore()
 
-    -- Hot paths with cross-reference for offline analysis
     local hot, crossRef = ACI.FindHotPathsWithCrossRef(2, 30)
     local hotDump = {}
     for _, h in ipairs(hot) do
@@ -756,7 +729,7 @@ function ACI.DumpToSV()
         hotPaths = hotDump,
     }
 
-    d("[ACI] Dump saved. Check [\"dump\"] block in SV file after /reloadui.")
+    d(L("DUMP_SAVED"))
 end
 
 ----------------------------------------------------------------------
@@ -766,9 +739,9 @@ function ACI.ForceSave()
     local mgr = GetAddOnManager()
     if mgr and mgr.RequestAddOnSavedVariablesPrioritySave then
         mgr:RequestAddOnSavedVariablesPrioritySave()
-        d("[ACI] SV priority save requested.")
+        d(L("SAVE_REQUESTED"))
     else
-        d("[ACI] Not available. Use /reloadui to save.")
+        d(L("SAVE_NOT_AVAILABLE"))
     end
 end
 
@@ -776,23 +749,23 @@ end
 -- /aci help
 ----------------------------------------------------------------------
 function ACI.PrintHelp()
-    d("--------------------------------------------")
-    d("[ACI] Commands")
-    d("--------------------------------------------")
-    d("[ACI]   /aci          summary report")
-    d("[ACI]   /aci stats    event registration stats")
-    d("[ACI]   /aci addons   addon list")
-    d("[ACI]   /aci deps     most-used libraries")
-    d("[ACI]   /aci deps X   forward/reverse deps for X")
-    d("[ACI]   /aci init     init time estimation (top 10)")
-    d("[ACI]   /aci orphans  unused libraries + de-facto")
-    d("[ACI]   /aci missing  missing dependencies + hints")
-    d("[ACI]   /aci ood      out-of-date breakdown")
-    d("[ACI]   /aci hot      event hot paths (by addon count)")
-    d("[ACI]   /aci hot regs hot paths sorted by registration count")
-    d("[ACI]   /aci health   environment diagnosis")
-    d("[ACI]   /aci sv       SV registrations + conflicts")
-    d("[ACI]   /aci save     force SV save")
-    d("[ACI]   /aci help     this help")
-    d("--------------------------------------------")
+    d(L("SEPARATOR"))
+    d(L("HELP_TITLE"))
+    d(L("SEPARATOR"))
+    d(L("HELP_REPORT"))
+    d(L("HELP_STATS"))
+    d(L("HELP_ADDONS"))
+    d(L("HELP_DEPS"))
+    d(L("HELP_DEPS_X"))
+    d(L("HELP_INIT"))
+    d(L("HELP_ORPHANS"))
+    d(L("HELP_MISSING"))
+    d(L("HELP_OOD"))
+    d(L("HELP_HOT"))
+    d(L("HELP_HOT_REGS"))
+    d(L("HELP_HEALTH"))
+    d(L("HELP_SV"))
+    d(L("HELP_SAVE"))
+    d(L("HELP_HELP"))
+    d(L("SEPARATOR"))
 end

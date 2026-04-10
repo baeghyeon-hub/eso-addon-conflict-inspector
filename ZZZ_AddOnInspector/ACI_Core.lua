@@ -2,7 +2,7 @@
 -- ACI_Core.lua — global table, SV init, event lifecycle
 ----------------------------------------------------------------------
 
-ACI = {}
+ACI = ACI or {}
 ACI.name = "ZZZ_AddOnInspector"
 ACI.version = "0.2.0"
 ACI.eventLog = {}
@@ -44,6 +44,17 @@ function ACI.TableLength(t)
     local count = 0
     for _ in pairs(t) do count = count + 1 end
     return count
+end
+
+----------------------------------------------------------------------
+-- Localization lookup. ACI.S is populated by ACI_Strings_en.lua and
+-- optionally overridden per-key by ACI_Strings_kr.lua (which self-checks
+-- for Korean clients via TamrielKR or raw GetCVar). Missing keys fall
+-- back to the key string itself, so a typo is immediately visible.
+----------------------------------------------------------------------
+ACI.S = ACI.S or {}
+function ACI.L(key)
+    return ACI.S[key] or key
 end
 
 function ACI.EnumerateMethods(obj)
@@ -201,12 +212,12 @@ local function OnACILoaded(eventCode, addonName)
         -- Delay report until chat UI is ready (zo_callLater)
         zo_callLater(function()
             ACI.PrintReport()
-            d("[ACI] Type |c00FF00/aci|r for latest stats.")
+            d(ACI.L("BOOT_USE_HINT"))
         end, 1000)
     end)
 
     zo_callLater(function()
-        d("[ACI] v" .. ACI.version .. " loaded. Hooks: Event=" .. tostring(ACI.hookInstalled) .. ", SV=" .. tostring(ACI.svHookInstalled))
+        d(string.format(ACI.L("FMT_BOOT_LOADED"), ACI.version, tostring(ACI.hookInstalled), tostring(ACI.svHookInstalled)))
     end, 500)
 end
 

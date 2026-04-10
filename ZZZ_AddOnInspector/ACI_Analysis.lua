@@ -519,21 +519,21 @@ function ACI.ComputeHealthScore()
 
     -- SV conflicts — always critical
     if #svConflicts > 0 then
-        table.insert(issues, { level = "red", msg = #svConflicts .. " SV conflict(s)" })
+        table.insert(issues, { level = "red", kind = "sv",
+            msg = string.format(ACI.L("FMT_HEALTH_ISSUE_SV_CONFLICTS"), #svConflicts) })
     end
 
     -- OOD — ratio-based severity (only standalone count matters for user action)
+    -- Tagged kind="ood" so PrintHealth can skip them (rendered separately).
     if ood then
         local pct = math.floor(ood.oodRatio * 100 + 0.5)
+        local oodMsg = string.format(ACI.L("FMT_HEALTH_ISSUE_OOD"), ood.topLevelOOD, ood.topLevelEnabled, pct)
         if ood.oodRatio > 0.8 then
-            table.insert(issues, { level = "red",
-                msg = ood.topLevelOOD .. "/" .. ood.topLevelEnabled .. " out-of-date (" .. pct .. "%)" })
+            table.insert(issues, { level = "red", kind = "ood", msg = oodMsg })
         elseif ood.oodRatio > 0.5 then
-            table.insert(issues, { level = "yellow",
-                msg = ood.topLevelOOD .. "/" .. ood.topLevelEnabled .. " out-of-date (" .. pct .. "%)" })
+            table.insert(issues, { level = "yellow", kind = "ood", msg = oodMsg })
         elseif ood.topLevelOOD > 0 then
-            table.insert(issues, { level = "info",
-                msg = ood.topLevelOOD .. "/" .. ood.topLevelEnabled .. " out-of-date (" .. pct .. "%)" })
+            table.insert(issues, { level = "info", kind = "ood", msg = oodMsg })
         end
     end
 
@@ -543,18 +543,22 @@ function ACI.ComputeHealthScore()
         for _, m in ipairs(missingDeps) do
             if m.hint then hinted = hinted + 1 end
         end
-        local msg = #missingDeps .. " missing dep(s)"
+        local msg
         if hinted > 0 then
-            msg = msg .. " (" .. hinted .. " with hints)"
+            msg = string.format(ACI.L("FMT_HEALTH_ISSUE_MISSING_HINTS"), #missingDeps, hinted)
+        else
+            msg = string.format(ACI.L("FMT_HEALTH_ISSUE_MISSING"), #missingDeps)
         end
-        table.insert(issues, { level = "yellow", msg = msg })
+        table.insert(issues, { level = "yellow", kind = "missing", msg = msg })
     end
 
     -- Orphan libraries
     if #orphans > 3 then
-        table.insert(issues, { level = "yellow", msg = #orphans .. " unused libraries" })
+        table.insert(issues, { level = "yellow", kind = "orphans",
+            msg = string.format(ACI.L("FMT_HEALTH_ISSUE_ORPHANS"), #orphans) })
     elseif #orphans > 0 then
-        table.insert(issues, { level = "info", msg = #orphans .. " unused libraries" })
+        table.insert(issues, { level = "info", kind = "orphans",
+            msg = string.format(ACI.L("FMT_HEALTH_ISSUE_ORPHANS"), #orphans) })
     end
 
     -- Big SV alert — single addon using > 50% of total SV disk
@@ -572,8 +576,8 @@ function ACI.ComputeHealthScore()
         if totalMB > 0 and biggest.name then
             local pct = biggest.mb / totalMB * 100
             if pct > 50 then
-                table.insert(issues, { level = "yellow",
-                    msg = string.format("%s uses %.0f%% of SV disk (%.2f MB / %.2f MB)",
+                table.insert(issues, { level = "yellow", kind = "bigsv",
+                    msg = string.format(ACI.L("FMT_HEALTH_ISSUE_BIG_SV"),
                         biggest.name, pct, biggest.mb, totalMB) })
             end
         end

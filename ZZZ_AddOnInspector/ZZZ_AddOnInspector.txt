@@ -9,6 +9,8 @@
 ## Description: Diagnose addon conflicts, namespace collisions, and performance issues for everyday ESO players.
 
 ACI_Core.lua
+ACI_Strings_en.lua
+ACI_Strings_kr.lua
 ACI_Hooks.lua
 ACI_Inventory.lua
 ACI_Analysis.lua
