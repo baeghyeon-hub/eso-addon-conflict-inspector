@@ -461,7 +461,11 @@ function ACI.ComputeHealthScore()
     -- Tagged kind="ood" so PrintHealth can skip them (rendered separately).
     if ood then
         local pct = math.floor(ood.oodRatio * 100 + 0.5)
-        local oodMsg = string.format(ACI.L("FMT_HEALTH_ISSUE_OOD"), ood.topLevelOOD, ood.topLevelEnabled, pct)
+        local oodMsg = string.format(ACI.L("FMT_HEALTH_ISSUE_OOD"),
+            ood.topLevelOOD,
+            ood.topLevelEnabled,
+            pct
+        )
         if ood.oodRatio > 0.8 then
             table.insert(issues, { level = "red", kind = "ood", msg = oodMsg })
         elseif ood.oodRatio > 0.5 then

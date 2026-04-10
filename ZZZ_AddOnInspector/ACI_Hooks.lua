@@ -13,7 +13,8 @@ end
 -- RegisterForEvent interception
 ----------------------------------------------------------------------
 function ACI.InstallEventHook()
-    ZO_PreHook(EVENT_MANAGER, "RegisterForEvent", function(self, namespace, eventCode, callback, ...)
+    ZO_PreHook(EVENT_MANAGER, "RegisterForEvent",
+            function(self, namespace, eventCode, callback, ...)
         local trace = debug.traceback("", 2)
         local caller = CallerFromTraceback(trace)
         table.insert(ACI.eventLog, {

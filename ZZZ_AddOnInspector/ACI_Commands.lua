@@ -79,11 +79,21 @@ function ACI.PrintReport()
     d(L("SEPARATOR"))
 
     local meta = ACI_SavedVars and ACI_SavedVars.metadata
-    local apiStr = meta and meta.currentAPI and string.format(L("FMT_REPORT_API"), tostring(meta.currentAPI)) or ""
-    local oodStr = meta and meta.outOfDateCount and meta.outOfDateCount > 0
-        and string.format(L("FMT_REPORT_OOD"), meta.outOfDateCount) or ""
+    local apiStr = ""
+    if meta and meta.currentAPI then
+        apiStr = string.format(L("FMT_REPORT_API"), tostring(meta.currentAPI))
+    end
+    local oodStr = ""
+    if meta and meta.outOfDateCount and meta.outOfDateCount > 0 then
+        oodStr = string.format(L("FMT_REPORT_OOD"), meta.outOfDateCount)
+    end
 
-    d(string.format(L("FMT_REPORT_LOADED"), #ACI.loadOrder, apiStr, tostring(aciLoadIndex or "?"), oodStr))
+    d(string.format(L("FMT_REPORT_LOADED"),
+        #ACI.loadOrder,
+        apiStr,
+        tostring(aciLoadIndex or "?"),
+        oodStr
+    ))
 
     d(string.format(L("FMT_REPORT_EVENTS"), ACI.EventCountExcludingSelf(), #sorted))
     for i = 1, math.min(5, #sorted) do
@@ -321,7 +331,14 @@ function ACI.PrintDeps(name)
         if #fwd > 0 then
             for _, depName in ipairs(fwd) do
                 local depAddon = depIndex.byName[depName]
-                local status = depAddon and (depAddon.enabled and L("DEP_OK") or L("DEP_OFF")) or L("DEP_MISSING")
+                local status
+                if not depAddon then
+                    status = L("DEP_MISSING")
+                elseif depAddon.enabled then
+                    status = L("DEP_OK")
+                else
+                    status = L("DEP_OFF")
+                end
                 d("[ACI]   " .. depName .. " " .. status)
             end
         end
@@ -584,7 +601,10 @@ function ACI.PrintHealth()
             for i = 1, math.min(5, #ood.standalone) do
                 table.insert(names, ood.standalone[i])
             end
-            local suffix = #ood.standalone > 5 and string.format(L("FMT_HEALTH_NAMES_MORE"), #ood.standalone - 5) or ""
+            local suffix = ""
+            if #ood.standalone > 5 then
+                suffix = string.format(L("FMT_HEALTH_NAMES_MORE"), #ood.standalone - 5)
+            end
             d(string.format(L("FMT_HEALTH_NAMES"), table.concat(names, ", "), suffix))
         end
 

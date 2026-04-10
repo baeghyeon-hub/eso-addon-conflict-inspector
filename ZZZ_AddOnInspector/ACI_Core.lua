@@ -217,7 +217,11 @@ local function OnACILoaded(eventCode, addonName)
     end)
 
     zo_callLater(function()
-        d(string.format(ACI.L("FMT_BOOT_LOADED"), ACI.version, tostring(ACI.hookInstalled), tostring(ACI.svHookInstalled)))
+        d(string.format(ACI.L("FMT_BOOT_LOADED"),
+            ACI.version,
+            tostring(ACI.hookInstalled),
+            tostring(ACI.svHookInstalled)
+        ))
     end, 500)
 end
 
