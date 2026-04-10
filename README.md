@@ -15,9 +15,9 @@
 ACI is a diagnostic addon for *Elder Scrolls Online*. It hooks into the addon manager at load time and answers questions you didn't know to ask:
 
 - **"Which of my 60 addons is actually out-of-date?"** Most "out-of-date" warnings are noise from abandoned libraries that still work fine. ACI separates them from the addons you actually need to update.
-- **"Why is my SavedVariables file 4 MB?"** Disk usage ranking with `[waste]`, `[unused]`, and `[deps]` tags shows you which addons are eating space and whether anything still uses them.
+- **"Why is my SavedVariables file 4 MB?"** Disk usage ranking with `[review]`, `[unused]`, and `[deps]` tags shows you which addons are eating space and whether anything still uses them.
 - **"Which addons are slowing me down?"** Event hot path analysis flags addons registered for many high-traffic events, with cross-reference annotations.
-- **"What can I delete without breaking anything?"** Safe-to-delete recommendations: unused AND outdated libraries with zero dependents and the disk space you'll recover.
+- **"Which libraries should I double-check?"** *Review candidate* list: libraries that appear inactive by manifest-level signals (not declared by any enabled addon, author marked out-of-date). ACI flags them for **manual review** — it does not tell you to delete anything. See [What ACI cannot tell you](#what-aci-cannot-tell-you).
 - **"Did I typo a dependency?"** Missing dependency detection with case-mismatch, version-suffix, and Levenshtein-distance hints.
 
 ---
@@ -45,7 +45,7 @@ The first thing to type. Loaded addon count, current API version, out-of-date co
 
 ### `/aci health` — traffic-light diagnosis
 
-The headline command. Splits your out-of-date addons into *ignorable* (libraries, embedded sub-addons) and *attention* (standalone addons that actually need updating). Tells you what to delete and how much disk space you'll save.
+The headline command. Splits your out-of-date addons into *ignorable* (libraries, embedded sub-addons) and *attention* (standalone addons that actually need updating). If any libraries look inactive by manifest-level signals, they show up as **review candidates** with an explicit warning that the ESO Lua API cannot see runtime dependencies — verify in Minion or the addon's own documentation before touching anything.
 
 ![Health](screenshot/8.png)
 
@@ -53,9 +53,9 @@ The headline command. Splits your out-of-date addons into *ignorable* (libraries
 
 Conflicts (when two addons fight over the same SV key) plus a disk usage ranking. Tags tell you whether each big SV file is still in use:
 
-- `[deps]` — library that other addons still depend on (keep)
-- `[unused]` — library that nothing depends on (consider removing)
-- `[waste]` — unused **and** out-of-date (delete candidate)
+- `[deps]` — library that other addons still declare as a dependency
+- `[unused]` — library that no enabled addon declares as a dependency
+- `[review]` — `[unused]` plus author-marked out-of-date. A candidate for **manual review**, not automatic deletion — see [What ACI cannot tell you](#what-aci-cannot-tell-you).
 
 ![SavedVariables](screenshot/5.png)
 
@@ -80,8 +80,8 @@ Stop panicking about the "32 out of date" warning. ACI splits OOD addons into th
 | Command | What it does |
 |---------|--------------|
 | `/aci` | Environment summary |
-| `/aci health` | Traffic-light diagnosis with safe-to-delete recommendations |
-| `/aci sv` | SavedVariables registrations, conflicts, disk usage with value/waste tags |
+| `/aci health` | Traffic-light diagnosis with review-candidate hints |
+| `/aci sv` | SavedVariables registrations, conflicts, disk usage with dependency tags |
 | `/aci hot` | Event hot paths sorted by addon count, with cross-hot annotations |
 | `/aci hot regs` | Event hot paths sorted by registration count |
 | `/aci ood` | Out-of-date breakdown (standalone / library / embedded) |
@@ -94,6 +94,34 @@ Stop panicking about the "32 out of date" warning. ACI splits OOD addons into th
 | `/aci init` | Init time estimation (top 10) |
 | `/aci save` | Force SavedVariables priority save |
 | `/aci help` | Command list |
+
+---
+
+## What ACI cannot tell you
+
+ACI is a **diagnostic tool**, not an oracle. Every recommendation it surfaces is derived from signals the ESO Lua API actually exposes at runtime — and that API has significant blind spots. Be aware of them before acting on any output, especially the *review candidates* list in `/aci health`.
+
+**ACI's view of "dependencies" is manifest-level only.**
+
+- `GetAddOnDependencyInfo()` returns entries declared in an addon's `## DependsOn:` line. That's it.
+- `## OptionalDependsOn:` entries are **not exposed** through the public API in current ESO builds. An addon may legitimately depend on a library optionally (e.g., LibAddonMenu-2.0 for its settings panel) without that relationship being visible to ACI.
+- Runtime dependencies — one addon calling another addon's global functions, consuming its events, or reading its SavedVariables — are completely invisible. There is no API that would let ACI trace them.
+- There is no "did anyone actually `require` this library at load time?" signal. Load-order presence is not proof of use.
+
+**What this means for the review-candidate list:**
+
+- A library can land on the list and still be in active use. If an addon you rely on uses it via `OptionalDependsOn` or via a global function call, ACI has no way to know.
+- The list is a **starting point for manual investigation**, not a deletion queue. ACI deliberately uses the word "review" and prints an API-limitation warning inline next to the list for this reason.
+- Before removing anything flagged as a review candidate, verify in [Minion](https://minion.mmoui.com/), check the addon's own documentation, or disable it temporarily and see what breaks.
+
+**Other things ACI cannot determine:**
+
+- **CPU impact.** `/aci hot` counts event *registrations*, not firings, not handler cost. A high registration count is a hint, not a verdict. Real profiling requires `/script GetGameTimeMilliseconds()` instrumentation or an external profiler.
+- **Memory leaks.** ACI reports SavedVariables *disk* footprint, not in-memory growth over a session.
+- **Runtime conflicts between addons that touch the same global state** without going through `ZO_SavedVars` or `EVENT_MANAGER`.
+- **Whether an out-of-date addon is actually broken on the current patch.** "Out-of-date" is an author-maintained flag in the manifest, not a functional test. Many libraries marked OOD still work fine; some addons marked current are silently broken. ACI reports what the manifest says and lets you decide.
+
+If you're ever unsure, treat ACI's output as "here's what the manifest says — go investigate." It will not make the decision for you.
 
 ---
 
@@ -150,7 +178,7 @@ Development logs and design documents are in the `docs/` folder, organized by ph
 
 - **Phase 0** — Proof of concept, SV data analysis
 - **Phase 1** — Full architecture, inventory, analysis, health score, commands
-- **Phase 2** *(complete)* — Technical debt cleanup, missing dep detection, typo hints, OOD segmentation, safe-to-delete, SV disk cross-analysis, traceback-based SV caller detection, conflict validation
+- **Phase 2** *(complete)* — Technical debt cleanup, missing dep detection, typo hints, OOD segmentation, review-candidate heuristic, SV disk cross-analysis, traceback-based SV caller detection, conflict validation
 - **Phase 3** *(complete)* — Event hook traceback (full caller attribution for `RegisterForEvent`), hot path × cross-reference matrix, `rawget` probe workaround for the `pairs(_G)` iteration wall, English/Korean i18n with `TamrielKR`-aware detection
 
 </details>

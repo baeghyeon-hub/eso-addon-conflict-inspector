@@ -342,9 +342,18 @@ function ACI.FindHotPathsWithCrossRef(threshold, topN)
 end
 
 ----------------------------------------------------------------------
--- Safe-to-delete libraries: orphan AND out-of-date (zero-risk removal)
+-- Review candidates: libraries flagged by 3 manifest-level signals —
+--   (1) no enabled addon declares them in DependsOn/OptionalDependsOn
+--   (2) author marked them out-of-date via APIVersion
+--   (3) they are not embedded sub-addons
+--
+-- NOTE: This is a HEURISTIC, not a safety guarantee. The ESO Lua API
+-- exposes DependsOn reliably but drops OptionalDependsOn in some
+-- builds, and cannot see runtime global-function-based dependencies
+-- at all. Users must verify in Minion or the addon's own docs before
+-- removing anything. Never present these as "safe to delete".
 ----------------------------------------------------------------------
-function ACI.FindSafeToDelete()
+function ACI.FindReviewCandidates()
     local orphans = ACI.FindOrphanLibraries()
     local meta = ACI_SavedVars and ACI_SavedVars.metadata
     if not meta or not meta.addons then return {} end
@@ -357,19 +366,19 @@ function ACI.FindSafeToDelete()
     ACI.TagEmbeddedAddons()
 
     local result = {}
-    local totalSaveMB = 0
+    local totalMB = 0
     for _, a in ipairs(meta.addons) do
         if a.enabled and a.isLibrary and a.isOutOfDate
             and not a.isEmbedded and orphanSet[a.name]
         then
             local mb = a.svDiskMB or 0
-            totalSaveMB = totalSaveMB + mb
+            totalMB = totalMB + mb
             table.insert(result, { name = a.name, version = a.version, svDiskMB = mb })
         end
     end
-    -- Sort by SV size descending (biggest waste first)
+    -- Sort by SV size descending (biggest first, for visibility only)
     table.sort(result, function(a, b) return a.svDiskMB > b.svDiskMB end)
-    return result, totalSaveMB
+    return result, totalMB
 end
 
 ----------------------------------------------------------------------
@@ -490,11 +499,10 @@ function ACI.ComputeHealthScore()
         table.insert(issues, { level = "yellow", kind = "missing", msg = msg })
     end
 
-    -- Orphan libraries
-    if #orphans > 3 then
-        table.insert(issues, { level = "yellow", kind = "orphans",
-            msg = string.format(ACI.L("FMT_HEALTH_ISSUE_ORPHANS"), #orphans) })
-    elseif #orphans > 0 then
+    -- Orphan (unused) libraries — informational only. No enabled addon
+    -- declares these in DependsOn/OptionalDependsOn, but runtime use is
+    -- invisible to the API, so this is never flagged as a warning.
+    if #orphans > 0 then
         table.insert(issues, { level = "info", kind = "orphans",
             msg = string.format(ACI.L("FMT_HEALTH_ISSUE_ORPHANS"), #orphans) })
     end

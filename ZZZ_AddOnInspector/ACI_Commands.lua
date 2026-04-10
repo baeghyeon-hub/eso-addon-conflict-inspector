@@ -261,7 +261,7 @@ function ACI.PrintSV()
 
                 local tag = ""
                 if s.isLibrary and s.isOrphan and s.isOOD then
-                    tag = L("SV_TAG_WASTE")
+                    tag = L("SV_TAG_REVIEW")
                 elseif s.isLibrary and s.isOrphan then
                     tag = L("SV_TAG_UNUSED")
                 elseif s.isLibrary and s.dependents > 0 then
@@ -637,25 +637,27 @@ function ACI.PrintHealth()
         end
     end
 
-    local safeToDelete, saveMB = ACI.FindSafeToDelete()
-    if #safeToDelete > 0 then
+    local reviewCandidates, totalMB = ACI.FindReviewCandidates()
+    if #reviewCandidates > 0 then
         d("[ACI]")
-        local saveStr = saveMB > 0
-            and string.format(L("FMT_SAFE_DELETE_SAVES"), saveMB * 1024)
-            or ""
-        d(string.format(L("FMT_SAFE_DELETE_HEADER"), #safeToDelete, saveStr))
-        for _, sd in ipairs(safeToDelete) do
+        local sizeHint = ""
+        if totalMB > 0 then
+            sizeHint = string.format(L("FMT_REVIEW_CAND_SIZE_HINT"), totalMB * 1024)
+        end
+        d(string.format(L("FMT_REVIEW_CAND_HEADER"), #reviewCandidates, sizeHint))
+        d(L("REVIEW_CAND_WARNING"))
+        for _, rc in ipairs(reviewCandidates) do
             local sizeTag = ""
-            if sd.svDiskMB and sd.svDiskMB > 0 then
-                if sd.svDiskMB >= 1 then
-                    sizeTag = string.format(L("FMT_SAFE_DELETE_SIZE_MB"), sd.svDiskMB)
+            if rc.svDiskMB and rc.svDiskMB > 0 then
+                if rc.svDiskMB >= 1 then
+                    sizeTag = string.format(L("FMT_REVIEW_CAND_SIZE_MB"), rc.svDiskMB)
                 else
-                    sizeTag = string.format(L("FMT_SAFE_DELETE_SIZE_KB"), sd.svDiskMB * 1024)
+                    sizeTag = string.format(L("FMT_REVIEW_CAND_SIZE_KB"), rc.svDiskMB * 1024)
                 end
             end
-            d(string.format(L("FMT_SAFE_DELETE_ENTRY"), sd.name, sizeTag))
+            d(string.format(L("FMT_REVIEW_CAND_ENTRY"), rc.name, sizeTag))
         end
-        d(L("SAFE_DELETE_NOTE"))
+        d(L("REVIEW_CAND_NOTE"))
     end
 
     d("[ACI]")
