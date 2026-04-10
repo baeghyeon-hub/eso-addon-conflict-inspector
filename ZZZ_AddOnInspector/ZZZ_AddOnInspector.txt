@@ -5,8 +5,7 @@
 ## Version: 0.2.0
 ## IsLibrary: false
 ## SavedVariables: ACI_SavedVars
-## OptionalDependsOn: LibDebugLogger
-## Description: Diagnose addon conflicts, namespace collisions, and performance issues for everyday ESO players.
+## Description: Diagnose addon conflicts, dependency issues, SavedVariables collisions, and event hot paths. Type /aci health for a one-line environment diagnosis.
 
 ACI_Core.lua
 ACI_Strings_en.lua

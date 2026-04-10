@@ -1,88 +1,158 @@
-# ZZZ_AddOnInspector (ACI)
+# AddOn Conflict Inspector (ACI)
 
-An ESO (Elder Scrolls Online) addon that diagnoses your addon environment — event registrations, dependency issues, SavedVariables conflicts, and overall health.
+**One slash command tells you what's wrong with your ESO addon environment.**
 
-## Features
+`/aci health` gives you a traffic-light diagnosis: out-of-date addons that actually need attention (vs. abandoned libraries that don't), unused libraries you can safely delete, SavedVariables conflicts, missing dependencies, and the addons hogging your disk space — all in one screen.
 
-- **Event Hook Monitoring** — intercepts `RegisterForEvent` calls at load time, counts registrations per addon cluster
-- **Load Order Tracking** — records exact load sequence and init time estimation
-- **Dependency Analysis** — forward/reverse dependency index, orphan library detection, de-facto library detection
-- **Missing Dependency Detection** — finds declared `DependsOn` entries that aren't installed, with 3-tier hint matching:
-  - Case mismatch (`libFoo` installed but `LibFoo` declared)
-  - Version suffix mismatch (`LibFoo` installed but `LibFoo-2.0` declared)
-  - Typo detection via Levenshtein distance
-- **Out-of-Date Segmentation** — classifies OOD addons into standalone (user action needed), library (author abandoned), and embedded (bundled, ignore)
-- **Safe-to-Delete Detection** — identifies orphan libraries that are also out-of-date with per-item SV size and total savings estimate
-- **SavedVariables Analysis** — conflict detection via `debug.traceback`-based caller attribution, disk usage ranking with value/waste tags (`[deps]`, `[unused]`, `[waste]`), and big SV alerts when a single addon dominates disk usage (>50%)
-- **Embedded Sub-addon Tagging** — distinguishes top-level addons from bundled sub-addons via `rootPath` analysis
-- **Health Score** — traffic-light diagnosis (green/yellow/red) with segmented OOD breakdown, orphan count, missing deps, SV conflicts, big SV alerts, and safe-to-delete recommendations with savings
-- **16 Slash Commands** — `/aci`, `/aci health`, `/aci orphans`, `/aci missing`, `/aci ood`, `/aci deps`, and more
+![Health diagnosis](screenshot/8.png)
 
-## Installation
+---
 
-Copy the `ZZZ_AddOnInspector` folder to your ESO AddOns directory:
+## What it does
 
-```
-Documents/Elder Scrolls Online/live/AddOns/ZZZ_AddOnInspector/
-```
+ACI is a diagnostic addon for *Elder Scrolls Online*. It hooks into the addon manager at load time and answers questions you didn't know to ask:
 
-The `ZZZ_` prefix ensures it loads last, allowing it to observe all other addons' registrations.
+- **"Which of my 60 addons is actually out-of-date?"** Most "out-of-date" warnings are noise from abandoned libraries that still work fine. ACI separates them from the addons you actually need to update.
+- **"Why is my SavedVariables file 4 MB?"** Disk usage ranking with `[waste]`, `[unused]`, and `[deps]` tags shows you which addons are eating space and whether anything still uses them.
+- **"Which addons are slowing me down?"** Event hot path analysis flags addons registered for many high-traffic events, with cross-reference annotations.
+- **"What can I delete without breaking anything?"** Safe-to-delete recommendations: unused AND outdated libraries with zero dependents and the disk space you'll recover.
+- **"Did I typo a dependency?"** Missing dependency detection with case-mismatch, version-suffix, and Levenshtein-distance hints.
 
-## Commands
+---
 
-| Command | Description |
-|---------|-------------|
-| `/aci` | Summary report |
-| `/aci health` | Environment diagnosis (traffic light + safe-to-delete) |
-| `/aci orphans` | Unused libraries + de-facto libraries |
-| `/aci missing` | Missing dependencies + 3-tier hints |
+## Quick start
+
+1. Download the latest release and extract `ZZZ_AddOnInspector` into your AddOns folder:
+   ```
+   Documents/Elder Scrolls Online/live/AddOns/ZZZ_AddOnInspector/
+   ```
+2. Enable it in the in-game addon menu and reload.
+3. Type `/aci` for a one-screen environment summary, or `/aci health` for the diagnosis.
+
+The `ZZZ_` prefix ensures ACI loads last, so it can observe every other addon's registrations.
+
+---
+
+## What you'll see
+
+### `/aci` — environment summary
+
+The first thing to type. Loaded addon count, current API version, out-of-date count, the top event clusters, SavedVariables registrations and conflicts.
+
+![Summary report](screenshot/1.png)
+
+### `/aci health` — traffic-light diagnosis
+
+The headline command. Splits your out-of-date addons into *ignorable* (libraries, embedded sub-addons) and *attention* (standalone addons that actually need updating). Tells you what to delete and how much disk space you'll save.
+
+![Health](screenshot/8.png)
+
+### `/aci sv` — SavedVariables analysis
+
+Conflicts (when two addons fight over the same SV key) plus a disk usage ranking. Tags tell you whether each big SV file is still in use:
+
+- `[deps]` — library that other addons still depend on (keep)
+- `[unused]` — library that nothing depends on (consider removing)
+- `[waste]` — unused **and** out-of-date (delete candidate)
+
+![SavedVariables](screenshot/5.png)
+
+### `/aci hot` — event hot paths
+
+Lists the events with the most addon registrations. The `[cross-hot:N]` annotation tells you how many of the top hot events a given addon appears in — a quick way to spot addons that contribute to multiple performance hot spots.
+
+![Hot paths](screenshot/6.png)
+
+Sort by registration count instead of addon count with `/aci hot regs`.
+
+### `/aci ood` — out-of-date breakdown
+
+Stop panicking about the "32 out of date" warning. ACI splits OOD addons into three buckets: **standalone** (you should update these), **libraries** (author abandoned them, but they still work), and **embedded** (bundled inside another addon, ignore).
+
+![OOD breakdown](screenshot/7.png)
+
+---
+
+## All commands
+
+| Command | What it does |
+|---------|--------------|
+| `/aci` | Environment summary |
+| `/aci health` | Traffic-light diagnosis with safe-to-delete recommendations |
+| `/aci sv` | SavedVariables registrations, conflicts, disk usage with value/waste tags |
+| `/aci hot` | Event hot paths sorted by addon count, with cross-hot annotations |
+| `/aci hot regs` | Event hot paths sorted by registration count |
 | `/aci ood` | Out-of-date breakdown (standalone / library / embedded) |
-| `/aci stats` | Event registration stats by cluster |
-| `/aci addons` | Full addon list |
+| `/aci orphans` | Unused libraries + de-facto libraries |
+| `/aci missing` | Missing dependencies + 3-tier hint matching |
 | `/aci deps` | Most depended-on libraries |
-| `/aci deps X` | Forward/reverse deps for addon X |
+| `/aci deps X` | Forward and reverse dependencies for addon X |
+| `/aci stats` | Event registration stats by cluster |
+| `/aci addons` | Full addon list (enabled / disabled / out-of-date) |
 | `/aci init` | Init time estimation (top 10) |
-| `/aci hot` | Event hot paths |
-| `/aci sv` | SavedVariables registrations, conflicts, disk usage + value/waste tags |
-| `/aci save` | Force SV priority save |
+| `/aci save` | Force SavedVariables priority save |
 | `/aci help` | Command list |
 
-## Architecture
+---
+
+## Languages
+
+- **English** — default
+- **한국어** — auto-enabled if [TamrielKR](https://tamrielkr.com/) is installed
+
+ESO doesn't officially support Korean, so the standard `$(language).lua` auto-loading mechanism can't dispatch to a Korean file. ACI loads its Korean strings unconditionally and self-checks for the TamrielKR community patch with a 3-tier fallback. If you're a Korean player using TamrielKR, ACI just works.
+
+---
+
+## License
+
+Source-available under a custom license. Personal, private, non-commercial use and private local modifications are allowed. Re-uploading, redistributing, repackaging, or distributing modified versions is not allowed without prior written permission.
+
+See the [LICENSE](LICENSE) file for the full terms.
+
+---
+
+## For developers
+
+<details>
+<summary>Architecture and technical notes</summary>
+
+### File layout
 
 ```
 ZZZ_AddOnInspector/
-  ACI_Core.lua        — globals, SV init, event lifecycle, utilities
-  ACI_Hooks.lua       — PreHook install (RegisterForEvent, ZO_SavedVars), traceback-based caller detection
-  ACI_Inventory.lua   — static metadata collection via GetAddOnManager
-  ACI_Analysis.lua    — clustering, dependency index, OOD segmentation, SV cross-analysis, health score, typo detection
-  ACI_Commands.lua    — /aci slash command system (16 commands)
+  ACI_Core.lua         globals, SV init, event lifecycle, ACI.S string table + ACI.L() lookup,
+                       hardcoded EVENT_* probe list, utilities
+  ACI_Strings_en.lua   English default string table (~130 keys)
+  ACI_Strings_kr.lua   Korean overrides, gated by 3-tier IsKoreanClient (TamrielKR-aware)
+  ACI_Hooks.lua        PreHook install (RegisterForEvent, ZO_SavedVars), traceback-based caller detection
+  ACI_Inventory.lua    static metadata collection via GetAddOnManager
+  ACI_Analysis.lua     clustering, dependency index, OOD segmentation, SV cross-analysis,
+                       hot path cross-reference, health score, typo detection
+  ACI_Commands.lua     /aci slash command system
 ```
 
-## Key Technical Notes
+### Key technical notes
 
-- **`pairs(_G)` must be pcall-wrapped** — ESO's global table contains protected entries that crash on iteration. Event callbacks are silently wrapped in pcall by ESO, so the error is caught but all subsequent code in the callback is aborted. See `docs/Phase 2 Step 0 - pairs(_G) Silent Crash Troubleshooting.md`.
-- **`d()` needs `zo_callLater`** — chat output during `EVENT_ADD_ON_LOADED` or `EVENT_PLAYER_ACTIVATED` executes without error but the chat UI isn't ready to display. Delay with `zo_callLater(fn, 500-1000)`.
-- **`/reloadui` does not reload addon code** — ESO requires a full game restart to pick up Lua file changes.
-- **`OptionalDependsOn` is invisible to API** — `GetAddOnDependencyInfo()` only returns `DependsOn` entries. `OptionalDependsOn` entries are not reported. See `docs/Phase 2 Step 3 - OptionalDependsOn API Discovery.md`.
-- **`ZO_SavedVars` colon vs dot call** — `ZO_PreHook` on table methods shifts arguments when the caller uses dot syntax (`ZO_SavedVars.New(...)`) vs colon syntax (`ZO_SavedVars:New(...)`). ACI handles both via `type(self)` detection.
-- **`lastLoadedAddon` is unreliable after load phase** — During `PLAYER_ACTIVATED`, it's permanently the last addon (ACI itself). SV caller attribution uses `debug.traceback` folder extraction instead.
+- **`pairs(_G)` is unsalvageable for `EVENT_*` enumeration.** ESO's global table contains a protected entry that crashes `next()` even with per-step `pcall`. Iteration order is deterministic, so you cannot skip past it. ACI uses `pcall(rawget, _G, name)` against a hardcoded ~120-entry list of well-known event names instead, which bypasses metamethods entirely. See `docs/Phase 3 Step C - rawget Probe Workaround for _G Iteration Wall.md`.
+- **`d()` needs `zo_callLater`.** Chat output during `EVENT_ADD_ON_LOADED` or `EVENT_PLAYER_ACTIVATED` executes without error but the chat UI isn't ready to display. Delay with `zo_callLater(fn, 500-1000)`.
+- **`/reloadui` does not reload addon code.** ESO requires a full game restart to pick up Lua file changes.
+- **`OptionalDependsOn` is invisible to API.** `GetAddOnDependencyInfo()` only returns `DependsOn` entries. `OptionalDependsOn` entries are not reported. See `docs/Phase 2 Step 3 - OptionalDependsOn API Discovery.md`.
+- **`ZO_SavedVars` colon vs dot call.** `ZO_PreHook` on table methods shifts arguments when the caller uses dot syntax (`ZO_SavedVars.New(...)`) vs colon syntax (`ZO_SavedVars:New(...)`). ACI handles both via `type(self)` detection.
+- **`lastLoadedAddon` is unreliable after load phase.** During `PLAYER_ACTIVATED`, it's permanently the last addon (ACI itself). Both SV and event hook caller attribution use `debug.traceback` folder extraction (`user:/AddOns/(.-)/`) instead.
+- **Korean is not an officially supported ESO language.** `GetCVar("language.2")` will never return `"kr"` on a stock client, so the standard `## Lua: $(language).lua` auto-load mechanism cannot dispatch to a Korean file. ACI loads `ACI_Strings_kr.lua` unconditionally and self-checks via `TamrielKR` presence and API. The TamrielKR patch hooks `GetCVar` to return `"en"` defensively, so a CVar check alone is a dead path — the real signal is the TamrielKR addon itself.
 
-## Documentation
+### Documentation
 
 Development logs and design documents are in the `docs/` folder, organized by phase:
 
 - **Phase 0** — Proof of concept, SV data analysis
 - **Phase 1** — Full architecture, inventory, analysis, health score, commands
-- **Phase 2** *(complete)* — Technical debt cleanup (`pairs(_G)` fix), missing dep detection, typo hints, OOD segmentation, safe-to-delete, SV disk cross-analysis, traceback-based SV caller detection, conflict validation
+- **Phase 2** *(complete)* — Technical debt cleanup, missing dep detection, typo hints, OOD segmentation, safe-to-delete, SV disk cross-analysis, traceback-based SV caller detection, conflict validation
+- **Phase 3** *(complete)* — Event hook traceback (full caller attribution for `RegisterForEvent`), hot path × cross-reference matrix, `rawget` probe workaround for the `pairs(_G)` iteration wall, English/Korean i18n with `TamrielKR`-aware detection
 
-## License
+</details>
 
-This project is source-available under a custom license.
+---
 
-Personal, private, non-commercial use and private local modifications are
-allowed. Re-uploading, redistributing, repackaging, or distributing modified
-versions is not allowed without prior written permission.
-
-See the [LICENSE](LICENSE) file for the full terms.
-
-This add-on is not created by, affiliated with, or sponsored by ZeniMax Media Inc. or its affiliates. The Elder Scrolls is a registered trademark of ZeniMax Media Inc.
+*This add-on is not created by, affiliated with, or sponsored by ZeniMax Media Inc. or its affiliates. The Elder Scrolls is a registered trademark of ZeniMax Media Inc.*
