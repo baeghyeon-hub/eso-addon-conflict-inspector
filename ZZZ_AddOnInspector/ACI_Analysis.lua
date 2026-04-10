@@ -97,14 +97,16 @@ end
 
 ----------------------------------------------------------------------
 -- Namespace Clustering
--- Groups by stripping numeric suffixes: LibCombat47 -> LibCombat
+-- Prefers caller (traceback-extracted addon folder) over namespace heuristic.
+-- Falls back to numeric-suffix stripping: LibCombat47 -> LibCombat
 ----------------------------------------------------------------------
 function ACI.ClusterNamespaces()
     local clusters = {}
     for _, entry in ipairs(ACI.eventLog) do
-        -- Exclude ACI's own registrations
-        if not ACI.IsSelfNamespace(entry.namespace) then
-            local base = entry.namespace:match("^(.-)%d+$") or entry.namespace
+        -- Exclude ACI's own registrations (check both caller and namespace)
+        if not ACI.IsSelfNamespace(entry.namespace) and not ACI.IsSelfNamespace(entry.caller) then
+            -- Prefer caller (accurate addon folder) over namespace pattern matching
+            local base = entry.caller or entry.namespace:match("^(.-)%d+$") or entry.namespace
             if not clusters[base] then
                 clusters[base] = { count = 0, eventCodes = {}, namespaces = {} }
             end

@@ -2,16 +2,26 @@
 -- ACI_Hooks.lua — PreHook install (RegisterForEvent, ZO_SavedVars)
 ----------------------------------------------------------------------
 
+-- Extract addon folder name from debug.traceback
+-- Looks for "user:/AddOns/<FolderName>/" pattern
+local function CallerFromTraceback(trace)
+    local folder = trace:match("user:/AddOns/([^/]+)/")
+    return folder
+end
+
 ----------------------------------------------------------------------
 -- RegisterForEvent interception
 ----------------------------------------------------------------------
 function ACI.InstallEventHook()
     ZO_PreHook(EVENT_MANAGER, "RegisterForEvent", function(self, namespace, eventCode, callback, ...)
+        local trace = debug.traceback("", 2)
+        local caller = CallerFromTraceback(trace)
         table.insert(ACI.eventLog, {
             ts         = GetGameTimeMilliseconds(),
             namespace  = namespace or "?",
             eventCode  = eventCode or -1,
             callbackId = tostring(callback),
+            caller     = caller,
         })
     end)
     ACI.hookInstalled = true
@@ -20,13 +30,6 @@ end
 ----------------------------------------------------------------------
 -- ZO_SavedVars constructor hooking
 ----------------------------------------------------------------------
--- Extract addon folder name from debug.traceback
--- Looks for "user:/AddOns/<FolderName>/" pattern
-local function CallerFromTraceback(trace)
-    local folder = trace:match("user:/AddOns/([^/]+)/")
-    return folder
-end
-
 local function RecordSVCall(method, tableName, version, namespace)
     local ns = tostring(namespace or "Default")
     local key = tostring(tableName) .. "::" .. ns
