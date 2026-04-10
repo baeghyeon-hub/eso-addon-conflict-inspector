@@ -1,16 +1,46 @@
-# Phase 3 Step C — `rawget` Probe Workaround for `_G` Iteration Wall
+# My pcall "Fix" Was a Lie. Here's How I Found Out 6 Commits Later.
 
-> **Date**: 2026-04-10
->
-> **Status**: Verified, deployed (commit `ab7b7db`)
->
-> **Impact scope**: Supersedes the Phase 2 Step 0 `pairs(_G)` "fix". The previous pcall-wrap fix prevented the silent crash from killing `PLAYER_ACTIVATED`, but the resulting `eventNames` cache was effectively empty (3 entries) and was never used in any user-visible output until Phase 3 C exposed it via `/aci hot`. This document records the real workaround.
+*A story about wrapping the right thing in the wrong way, and why "the crash stopped" is not the same as "the function works".*
 
 ---
 
-# Background
+If you write Lua for a game that embeds its own modified VM, you eventually run into a global table you can't iterate. Mine was Elder Scrolls Online's `_G`. I "fixed" the crash. The fix worked. Six commits later I discovered the fix had been quietly producing garbage the entire time.
 
-In Phase 2 Step 0, we discovered that `pairs(_G)` triggers a runtime error inside ESO event callbacks because the global table contains protected entries. The fix at the time was:
+This is the story of how `pcall(rawget, _G, name)` saved a feature that I didn't even know was broken.
+
+## The Setup
+
+I'm building **AddOn Conflict Inspector** (ACI), a diagnostic addon for Elder Scrolls Online. One of its features is `/aci hot` — show the events that the most addons are registered on, so you can spot performance bottleneck candidates. Output looks like this:
+
+```
+4 addons, 6 regs  EVENT_PLAYER_ACTIVATED
+2 addons, 141 regs  EVENT_COMBAT_EVENT
+2 addons, 23 regs  EVENT_EFFECT_CHANGED
+```
+
+That `EVENT_COMBAT_EVENT` label is the interesting part. ESO's `EVENT_MANAGER:RegisterForEvent` takes a numeric event code, not a name. The `EVENT_*` constants live in `_G` as integer-typed globals. To turn `131109` back into `EVENT_COMBAT_EVENT`, I built a reverse lookup map at addon load time:
+
+```lua
+function ACI.BuildEventNameMap()
+    local map = {}
+    for k, v in pairs(_G) do
+        if type(v) == "number" and type(k) == "string" and k:sub(1, 6) == "EVENT_" then
+            map[v] = k
+        end
+    end
+    return map
+end
+```
+
+Simple. Iterate `_G`, grab everything starting with `EVENT_` whose value is a number, build the inverse table. ESO has roughly 700 of these constants. The map should have 700-ish entries.
+
+It crashed. Hard.
+
+## The Phase 2 "Fix"
+
+The crash didn't even surface as a Lua error. ESO wraps event callbacks in a protected call internally, so when `pairs(_G)` errored partway through iteration, the entire `EVENT_PLAYER_ACTIVATED` callback was silently aborted. I lost not just the event name map but everything that ran after it: metadata collection, the initial report, all the diagnostic output.
+
+I documented this in `Phase 2 Step 0 - pairs(_G) Silent Crash Troubleshooting.md`. The cause is that ESO's `_G` contains protected entries — globals with some kind of access guard that fires during iteration. The fix at the time:
 
 ```lua
 function ACI.BuildEventNameMap()
@@ -26,47 +56,98 @@ function ACI.BuildEventNameMap()
 end
 ```
 
-This stopped the crash from aborting `PLAYER_ACTIVATED`, allowing `CollectMetadata` and `PrintReport` to run. Phase 2 was declared complete and we moved on.
+Wrap the whole loop in `pcall`. If iteration crashes, catch the error, return whatever was collected. The callback no longer aborts. `EVENT_PLAYER_ACTIVATED` runs to completion. The initial report shows up. I marked Phase 2 Step 0 done and moved on.
 
-The cache itself was never inspected. There was no UI surface that displayed event names — the only consumer was a stub `EventName(code)` that nobody called from a user-facing command.
+I never actually checked how many entries the map contained. Why would I? The crash was the bug, the crash was fixed, the report was printing. There was no consumer surface for the event name map at the time — `EventName(code)` was a stub that one place in the code called and nobody looked at the output.
 
----
+## Six Commits Later
 
-# Discovery
+Phase 3 came around. I was building `/aci hot` and finally needed real event names. I wired `ACI.EventName(h.eventCode)` into the output formatter, deployed, restarted the game, and got this:
 
-In Phase 3 Step C, `/aci hot` was extended to display event names alongside event codes. The output showed raw numbers (`589824`, `131109`, `131158`...) instead of names. Hypothesis: those specific codes were LibCombat custom pseudo-events that don't have public `EVENT_*` globals.
+```
+5 addons, 7 regs  589824
+3 addons, 4 regs  65540
+2 addons, 2 regs  589825
+2 addons, 141 regs  131109
+2 addons, 23 regs  131158
+2 addons, 4 regs  131459
+```
 
-To verify, we added `ACI_SavedVars._eventNamesSize` and read it after a `/aci save`:
+Raw numbers. No names.
+
+My first hypothesis was reasonable: maybe these specific codes are LibCombat custom pseudo-events. LibCombat is famous in the ESO addon community for inventing its own internal callback codes that don't have public `EVENT_*` constants. `131109 = 0x20025` looks suspiciously like a bit-pattern. Maybe the names just don't exist.
+
+But before chasing that hypothesis, I added one diagnostic line:
+
+```lua
+ACI_SavedVars._eventNamesSize = ACI.TableLength(ACI.eventNames)
+```
+
+Saved, restarted, grepped the SV file:
 
 ```
 ["_eventNamesSize"] = 2,
 ```
 
-**The cache had 2 entries.** Out of ~700+ EVENT_* globals in ESO. The Phase 2 fix had been silently producing a near-empty cache for the entire phase.
+**Two.**
 
----
+Out of seven hundred. The Phase 2 fix had been producing a 99.7% empty cache for six commits. Nobody noticed because nobody was reading from it.
 
-# Root cause
+The "131109 is a custom LibCombat code" hypothesis was wrong before I even tested it. `131109` is the actual numeric code for `EVENT_COMBAT_EVENT`. The reason it wasn't being resolved had nothing to do with LibCombat. It was that the cache only contained two entries, period, and `EVENT_COMBAT_EVENT` wasn't one of them.
 
-`pcall(function() for k, v in pairs(_G) do ... end end)` catches the error but `for-pairs` cannot resume after a failed iteration step. The protected key sits very early in the hash table iteration order — after only 2-3 successful steps, `next()` errors and the entire loop exits via the pcall.
+## Trying to Skip the Bad Key
 
-We tried per-step pcall to skip the bad key:
+OK, so `pairs(_G)` aborts after 2-3 iterations. I need to skip past the bad key and continue. Lua has `next(t, k)` which gives you the key after `k`. If I call it manually with per-step `pcall`, I should be able to catch the error on the bad key, log it, and... wait. If `next(_G, k)` errors when trying to advance from `k`, I don't know what the next key is. I can't supply it to `next()` to skip ahead.
+
+I tried anyway:
 
 ```lua
-local k = nil
-while true do
-    local ok, nk, nv = pcall(next, _G, k)
-    if not ok or nk == nil then break end
-    if type(nv) == "number" and type(nk) == "string" and nk:sub(1, 6) == "EVENT_" then
-        map[nv] = nk
+function ACI.BuildEventNameMap()
+    local map = {}
+    local k = nil
+    while true do
+        local ok, nk, nv = pcall(next, _G, k)
+        if not ok or nk == nil then break end
+        if type(nv) == "number" and type(nk) == "string" and nk:sub(1, 6) == "EVENT_" then
+            map[nv] = nk
+        end
+        k = nk
     end
-    k = nk
+    return map
 end
 ```
 
-Result: still 2-3 entries. **`next(_G, k)` cannot advance past the bad key** — without knowing the next key's identity, we can't supply it to `next()` ourselves to skip ahead. Lua's hash iteration is opaque from the outside.
+The thinking: at least if `next()` fails on a specific transition, I'd see partial data up to that point. Maybe the error is recoverable — maybe a fresh `next` call after an error would advance.
 
-We tried calling `BuildEventNameMap` at three different timing points (file load, `EVENT_ADD_ON_LOADED`, `EVENT_PLAYER_ACTIVATED`) hoping the global table state would differ:
+Result: 3 entries. Marginally better than 2. Same wall.
+
+Lua's `next()` is deterministic. If `next(_G, k)` errors, calling it again with the same `k` errors again. There is no "skip" mode. Hash table iteration order is determined by the slot of each key in the underlying array, and you cannot reorder it from outside.
+
+## Trying Different Timing
+
+Next theory: maybe the protected globals get added to `_G` at a specific point during ESO's initialization. If I call `BuildEventNameMap` *before* that point, the bad key might not exist yet. I instrumented three timing positions:
+
+```lua
+-- Attempt #1: file-load time (top-level code, earliest possible)
+ACI.BuildEventNameMap(ACI.eventNames)
+
+-- Attempt #2: EVENT_ADD_ON_LOADED for our own addon
+local function OnACILoaded(eventCode, addonName)
+    if addonName ~= ACI.name then return end
+    ACI_SavedVars._eventNamesSize_load = ACI.TableLength(ACI.eventNames)
+    ACI.BuildEventNameMap(ACI.eventNames)
+    ACI_SavedVars._eventNamesSize_addon = ACI.TableLength(ACI.eventNames)
+    -- ...
+end
+
+-- Attempt #3: EVENT_PLAYER_ACTIVATED (latest, all addons loaded)
+EVENT_MANAGER:RegisterForEvent(ACI.name, EVENT_PLAYER_ACTIVATED, function()
+    ACI.BuildEventNameMap(ACI.eventNames)
+    ACI_SavedVars._eventNamesSize = ACI.TableLength(ACI.eventNames)
+end)
+```
+
+Each call extends the same shared map. If different timings hit different walls, I'd see growth across the three diagnostic sizes. Saved, restarted, grepped:
 
 ```
 ["_eventNamesSize_load"]  = 3,
@@ -74,21 +155,33 @@ We tried calling `BuildEventNameMap` at three different timing points (file load
 ["_eventNamesSize"]       = 3,
 ```
 
-Hash table iteration order in Lua 5.1 is determined by the hash slot of each key, which doesn't change once a key is inserted. **Identical iteration order at every call site → identical wall position.**
+All three identical. Same 3 entries every time.
 
----
+Of course they were. Lua 5.1 hash slots are determined by the hash function applied to the key, and the hash function doesn't change between calls. The bad key sits in the same iteration position regardless of when you start iterating. Multi-timing was never going to help, and I'd just spent three deploy cycles confirming that.
 
-# Workaround: `pcall(rawget)` probes
+## The Insight
 
-The breakthrough was realizing that the iteration crash and the value access crash are different mechanisms. `pairs`/`next` reads values during iteration via the underlying VM step. Some keys have a VM-level access guard that errors during this read.
+I sat there looking at the diagnostic output and thinking about what `pairs` actually does. `pairs(t)` calls `next(t, k)` repeatedly. `next` is a C function in the Lua VM that walks the hash table and reads both the key and the value at each position. Whatever is happening with the protected globals, it's happening during that read.
 
-`rawget(_G, name)` bypasses metamethods entirely and goes straight to the hash slot. **It does not trigger the protected access guard** — at least not for the keys we care about. We just need to know the key names ahead of time, which means giving up on enumeration and switching to a hardcoded probe list.
+But there's another way to read a value from a table: `rawget(t, k)`. Unlike `t[k]`, `rawget` bypasses metamethods entirely. It goes straight to the hash slot lookup and returns whatever is there. No `__index`, no access guard, no nothing.
+
+The catch: `rawget` requires you to know the key. You can't enumerate. You can only ask "is `_G["EVENT_COMBAT_EVENT"]` defined?" and get yes/no. If you don't know the name to ask about, you're stuck.
+
+But — for my use case, I *do* know the names. I've been writing ESO addons for a while. I know roughly which `EVENT_*` constants exist. I can hardcode a list and probe each one:
 
 ```lua
 ACI.knownEventNames = {
-    "EVENT_ADD_ON_LOADED", "EVENT_PLAYER_ACTIVATED",
-    "EVENT_COMBAT_EVENT", "EVENT_EFFECT_CHANGED",
-    -- ... ~120 well-known event names
+    "EVENT_ADD_ON_LOADED", "EVENT_PLAYER_ACTIVATED", "EVENT_PLAYER_DEACTIVATED",
+    "EVENT_PLAYER_DEAD", "EVENT_PLAYER_ALIVE", "EVENT_PLAYER_REINCARNATED",
+    "EVENT_PLAYER_COMBAT_STATE", "EVENT_COMBAT_EVENT", "EVENT_BOSSES_CHANGED",
+    "EVENT_TARGET_CHANGE", "EVENT_RETICLE_TARGET_CHANGED", "EVENT_POWER_UPDATE",
+    "EVENT_LEVEL_UPDATE", "EVENT_EXPERIENCE_UPDATE", "EVENT_ABILITY_LIST_CHANGED",
+    "EVENT_UNIT_CREATED", "EVENT_UNIT_DESTROYED", "EVENT_UNIT_DEATH_STATE_CHANGED",
+    "EVENT_GROUP_MEMBER_JOINED", "EVENT_GROUP_MEMBER_LEFT",
+    "EVENT_INVENTORY_FULL_UPDATE", "EVENT_INVENTORY_SINGLE_SLOT_UPDATE",
+    "EVENT_QUEST_ADDED", "EVENT_QUEST_COMPLETE", "EVENT_QUEST_ADVANCED",
+    "EVENT_ZONE_CHANGED", "EVENT_EFFECT_CHANGED", "EVENT_EFFECTS_FULL_UPDATE",
+    -- ... ~120 entries total, covering common addon-registered events
 }
 
 function ACI.BuildEventNameMap(into)
@@ -103,15 +196,31 @@ function ACI.BuildEventNameMap(into)
 end
 ```
 
-`pcall` is kept as a defensive measure in case any specific name still trips the guard, but in practice all 120 probes succeed.
+The `pcall` is defensive. I expected most probes to succeed but didn't want a single bad name to kill the loop, just like before. I called this from file-load time so the cache would be populated before any consumer touched it:
 
-## Verification
+```lua
+ACI.eventNames = {}
+
+-- File-load time: probe all known events into the cache
+ACI.BuildEventNameMap(ACI.eventNames)
+
+function ACI.EventName(code)
+    if not next(ACI.eventNames) then
+        ACI.BuildEventNameMap(ACI.eventNames)  -- lazy retry
+    end
+    return ACI.eventNames[code] or tostring(code)
+end
+```
+
+Saved, deployed, restarted, ran `/aci save`, grepped:
 
 ```
 ["_eventNamesSize"] = 114,
 ```
 
-114 out of 120 probes resolved. The 6 misses are events that were renamed or removed in current ESO versions. After deploying, `/aci hot` correctly displays:
+**One hundred fourteen.** Out of 120 probes. Six misses, probably events that were renamed or removed between ESO versions. The other 114 resolved instantly.
+
+`/aci hot` now showed:
 
 ```
 4 addons, 6 regs  EVENT_PLAYER_ACTIVATED
@@ -122,95 +231,66 @@ end
 2 addons, 4 regs  EVENT_PLAYER_COMBAT_STATE
 ```
 
-The "131109 LibCombat custom pseudo-event" hypothesis was wrong. `131109` is the real `EVENT_COMBAT_EVENT` code — LibCombat just registers on it 136 times.
+`131109` was indeed `EVENT_COMBAT_EVENT`. LibCombat just registers on it 136 times, which is exactly the kind of pattern `/aci hot` was designed to surface.
 
----
+## Why rawget Works
 
-# Why this matters beyond ACI
+I don't have ESO's source code, but I have a working theory.
 
-Any ESO addon that needs to enumerate `_G` for any purpose (debug tools, event introspection, dynamic constant lookup, autocomplete, runtime API surface analysis) hits this wall. The standard advice "wrap `pairs(_G)` in pcall" is technically correct (prevents the crash) but produces empty results that look like success.
+`pairs` and `next` operate at the VM level. They walk the hash table by stepping through internal slots and reading whatever is there. ESO's protected globals seem to have *something* — maybe a special hash slot type, maybe an upvalue that errors when read, maybe a tagged value with a side effect — that fires during this VM-level read. Whatever it is, it's tied to the iteration mechanism.
 
-**Safe pattern for ESO**: never iterate `_G`. If you need a set of constants, hardcode the names you care about and probe via `pcall(rawget, _G, name)`.
+`rawget`, on the other hand, takes a key, hashes it, walks the collision chain for that specific slot, and returns the value. It doesn't iterate. It doesn't visit any slot other than the one you asked about. If your key doesn't collide with the protected one in the hash table, you never touch the protected slot, and the access guard never fires.
 
-This applies to:
-- `EVENT_*` constants (this case)
-- `INTERACTION_*`, `INTERACT_*` constants
-- `BAG_*`, `SLOT_*` constants
-- Anything else where you'd be tempted to enumerate by name prefix
+That's why hardcoding works: every key in my probe list resolves to a different hash slot than the protected key, so each probe accesses memory the access guard doesn't watch. The guard only fires when you try to step into its slot during iteration.
 
----
+This is speculative — I can't see the VM internals. But it matches the observed behavior. `pairs(_G)` dies at slot ~3. `pcall(rawget, _G, "EVENT_COMBAT_EVENT")` succeeds 100% of the time. The two operations are reading from the same table but using different code paths.
 
-# Lessons
+## The Cache Was Empty for Six Commits
 
-## 1. Verify the fix actually does what you think it does
+This is the part that bothers me most.
 
-The Phase 2 pcall-wrap was tested by checking "does `PLAYER_ACTIVATED` complete?" — answer: yes. We never asked "does the cache contain useful data?" because no consumer needed it yet. **A fix that suppresses the symptom is not the same as a fix that solves the problem.** Phase 2 closed with a cache that was 99.6% empty and nobody noticed for 6 commits.
+Phase 2 closed with the cache holding 2 entries instead of 700. The pcall fix prevented the visible symptom (callback abort) but left the underlying functionality broken. I shipped six commits — including a Phase 2 completion report claiming all features verified — without anyone noticing.
 
-## 2. Distinguish "crash prevented" from "function works"
+The reason is structural: nothing read from the cache. `EventName(code)` existed but only one place called it, and that place was buried in summary output where the absence of resolved names looked like normal "this code has no public name" rather than "the cache is empty".
 
-`pcall` is a crash suppressor. It says nothing about whether the wrapped code accomplished its goal. When the wrapped operation is iterative state-building (`for ... do map[k] = v end`), suppressing the crash means accepting whatever partial state was built before the crash. That partial state can be anything from "complete" to "empty".
+The fix that surfaced the problem was the *new feature* in Phase 3 C. `/aci hot` was the first user-facing place where missing event names were obviously wrong. Without that feature, the broken cache might have stayed broken indefinitely.
 
-Always pair `pcall` with a sanity check on the output:
+I'm going to be more careful from now on about a specific pattern: **fixes that suppress crashes in iterative state-building code**. When you wrap `for ... do map[k] = v end` in `pcall`, you're not fixing iteration. You're saying "stop crashing, and I'll accept whatever partial state you got". That partial state could be 100% complete or 0.3% complete. You won't know unless you check.
+
+The cheap version of "checking" is one diagnostic line:
 
 ```lua
-local map = ACI.BuildEventNameMap()
-assert(next(map) ~= nil, "BuildEventNameMap returned empty")
--- or at least: ACI_SavedVars._diagSize = ACI.TableLength(map)
+ACI_SavedVars._diagSize = ACI.TableLength(map)
 ```
 
-## 3. Hash iteration order is opaque — you cannot skip a bad key
+If I'd added that to the Phase 2 fix, I would have seen `2` immediately and known something was wrong before declaring the phase complete.
 
-When `next(t, k)` errors, you lose the ability to advance. There's no `next(t, k, skip=true)`. The only ways forward are:
-- Avoid iteration entirely (rawget probes, like this fix)
-- Use a different table that wraps the original safely
-- Change the data source (e.g., enumerate via a different API)
+## What I'd Tell Past Me
 
-Per-step pcall around `next()` does not help because `next()` is deterministic — retrying yields the same crash on the same key.
+A few things, in order of importance:
 
-## 4. Bypass metamethods when the metatable is hostile
+**1. `pcall` is a crash suppressor, not a fix.** It catches errors. It says nothing about whether your code accomplished its goal. When the wrapped code's purpose is to populate state, always sanity-check the populated state.
 
-ESO's `_G` has some kind of access guard that fires during iteration. `rawget` does not trigger metamethods (`__index`, etc.) and reads the raw hash slot directly. This is a powerful escape hatch when you suspect a metatable is the culprit.
+**2. Don't iterate `_G` in ESO.** Or more generally: don't iterate any table in a host environment that has access guards on individual keys. Hash iteration order is opaque, you can't skip past a bad key, and per-step `pcall` doesn't help because the bad key is deterministic. Use `rawget` against a known list instead.
 
-`rawget`, `rawset`, `rawequal`, `rawlen` — keep these in mind for any situation where standard table access misbehaves.
+**3. `rawget`, `rawset`, `rawequal`, and `rawlen` are escape hatches.** When standard table access misbehaves and you suspect a metatable, the raw versions bypass metamethods entirely. Keep them in your toolkit for hostile metatables.
 
-## 5. The cost of a hardcoded list is lower than the cost of clever iteration
+**4. The dumb solution often beats the clever one.** I burned three deploy cycles on per-step `pcall` and multi-timing experiments. The hardcoded list of 120 names took five minutes to type and works perfectly. ESO adds maybe 5-10 events per major patch. Maintaining the list is cheaper than maintaining clever iteration code that doesn't work.
 
-Maintaining a list of ~120 event names feels ugly and "non-extensible". But:
-- ESO adds maybe 5-10 events per major patch
-- Updates take 30 seconds
-- The list is testable and predictable
-- The alternative is 0 entries
+**5. New features expose old bugs.** The Phase 2 fix was wrong but invisible because nothing consumed the cache. The Phase 3 feature didn't introduce the bug — it surfaced it. Be glad when this happens and don't rationalize it away ("oh, those codes are probably custom"). If something looks broken in your output, it probably *is* broken somewhere upstream.
 
-Sometimes the dumb solution is the right solution. We spent more code (and cycles) on per-step pcall, multi-timing experiments, and SV diagnostic fields than the entire hardcoded list took to write.
+## The Numbers
 
----
+| Approach | Cache size | Verdict |
+|---|---|---|
+| Original `pairs(_G)` | crashes | unfixed |
+| `pcall` around the whole loop | 2-3 entries | suppresses crash, breaks cache |
+| Per-step `pcall(next, _G, k)` | 3 entries | same wall, deterministic |
+| Multi-timing (load/addon/activated) | 3, 3, 3 | hash order is constant |
+| `pcall(rawget, _G, name)` × 120 known | 114 | works |
 
-# Code paths affected
-
-| File | Change |
-|------|--------|
-| `ACI_Core.lua` | `BuildEventNameMap` rewritten to use `pcall(rawget)` probes against `ACI.knownEventNames`. Removed multi-pass timing logic. |
-| `ACI_Core.lua` | `ACI.knownEventNames` table added (~120 entries) |
-| `ACI_Commands.lua` | `PrintHotPaths` already called `ACI.EventName(code)` — no change needed once the cache was populated correctly. |
+The fix that worked was less code than the fix that didn't. It's also more obvious in hindsight, which is the most painful kind of obvious.
 
 ---
 
-# Open questions
-
-- **Which exact `_G` key is the protected one?** Unknown. Could probably be found via binary search by hardcoding a known-good iteration prefix and testing what advances past it. Not worth the time — we don't need to identify it, only avoid it.
-- **Are there `EVENT_*` names we're missing?** Likely yes. The probe list is curated from common addon usage patterns. Any addon using a rare event would still show as raw code. Mitigation: extend the list when we encounter unfamiliar codes.
-- **Does `pcall(rawget)` work for all `_G` keys?** Unknown. The 6 missing probes (114/120) might be renamed events, or might be cases where rawget also fails. No way to tell without per-name diagnostics.
-
----
-
-# Timeline
-
-| Step | Result |
-|------|--------|
-| Phase 2 Step 0 | `pairs(_G)` pcall-wrap stops `PLAYER_ACTIVATED` crash. Declared fixed. |
-| Phase 3 C | `/aci hot` displays raw codes instead of names. Hypothesis: LibCombat custom codes. |
-| Phase 3 C diagnostic | `_eventNamesSize = 2` written to SV. Cache was empty all along. |
-| Phase 3 C attempt 1 | Per-step `pcall(next)` — still 3 entries. `next` cannot skip bad key. |
-| Phase 3 C attempt 2 | Multi-pass at 3 timing points — all 3, identical. Hash order is deterministic. |
-| Phase 3 C fix | `pcall(rawget, _G, name)` probes against hardcoded ~120 event names. **114/120 success.** |
-| Verification | `/aci hot` shows `EVENT_COMBAT_EVENT`, `EVENT_PLAYER_ACTIVATED`, etc. Hypothesis disproved: `131109 = EVENT_COMBAT_EVENT`, real ESO event. |
+*ACI is open source. Code lives on [GitHub](https://github.com/baeghyeon-hub/eso-addon-conflict-inspector). The full Phase 2 Step 0 troubleshooting log (the original `pairs(_G)` crash) is in the `docs/` folder, and so is this story's source-of-truth notes file.*
