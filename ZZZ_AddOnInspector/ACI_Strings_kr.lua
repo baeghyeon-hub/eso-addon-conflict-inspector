@@ -22,12 +22,16 @@ ACI = ACI or {}
 ACI.S = ACI.S or {}
 
 local function IsKoreanClient()
-    -- Tier 1: TamrielKR public API
+    -- Tier 1: TamrielKR public API. If the API answers at all, trust it —
+    -- whether the answer is "kr" or not. Only fall through if the API is
+    -- unreachable (missing or throwing).
     if TamrielKR and TamrielKR.GetLanguage then
         local ok, lang = pcall(TamrielKR.GetLanguage, TamrielKR)
-        if ok and lang == "kr" then return true end
+        if ok then return lang == "kr" end
+        -- pcall failed: API exists but throws → fall through
     end
-    -- Tier 2: TamrielKR loaded but API differs (defensive against rename)
+    -- Tier 2: TamrielKR present but API unusable (renamed/removed/throwing).
+    -- Mere presence is still a strong signal of a Korean user.
     if _G["TamrielKR"] then
         return true
     end
