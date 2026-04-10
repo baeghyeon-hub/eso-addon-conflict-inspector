@@ -47,7 +47,7 @@ The first thing to type. Loaded addon count, current API version, out-of-date co
 
 The headline command. Splits your out-of-date addons into *ignorable* (libraries, embedded sub-addons) and *attention* (standalone addons that actually need updating). If any libraries look inactive by manifest-level signals, they show up as **review candidates** with an explicit warning that the ESO Lua API cannot see runtime dependencies — verify in Minion or the addon's own documentation before touching anything.
 
-![Health](screenshot/2%20fix.png)
+![Health](screenshot/0%20fix.png)
 
 ### `/aci sv` — SavedVariables analysis
 
@@ -57,7 +57,7 @@ Conflicts (when two addons fight over the same SV key) plus a disk usage ranking
 - `[unused]` — library that no enabled addon declares as a dependency
 - `[review]` — `[unused]` plus author-marked out-of-date. A candidate for **manual review**, not automatic deletion — see [What ACI cannot tell you](#what-aci-cannot-tell-you).
 
-![SavedVariables](screenshot/5.png)
+![SavedVariables](screenshot/2%20fix.png)
 
 ### `/aci hot` — event hot paths
 
