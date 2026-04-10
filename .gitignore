@@ -9,3 +9,14 @@ _havok_string_test.md
 
 # Blog drafts (published separately on web)
 docs/blog-post-*.md
+
+# Build artifacts
+ZZZ_AddOnInspector-*.zip
+
+# Screenshots: only README-referenced ones are tracked
+screenshot/*.png
+!screenshot/1.png
+!screenshot/5.png
+!screenshot/6.png
+!screenshot/7.png
+!screenshot/8.png
