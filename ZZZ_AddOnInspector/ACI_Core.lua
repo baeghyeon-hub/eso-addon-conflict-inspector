@@ -4,7 +4,7 @@
 
 ACI = ACI or {}
 ACI.name = "ZZZ_AddOnInspector"
-ACI.version = "0.2.0"
+ACI.version = "0.3.1"
 ACI.eventLog = {}
 ACI.svRegistrations = {}
 ACI.loadOrder = {}
@@ -185,7 +185,11 @@ local function OnACILoaded(eventCode, addonName)
     ACI_SavedVars._eventNamesSize_addon = ACI.TableLength(ACI.eventNames)
 
     -- Install hooks (ACI_Hooks.lua)
-    ACI.InstallEventHook()
+    -- Event hook can be disabled via SV (escape hatch for unknown native
+    -- crash conflicts; see Hooks.lua header for context).
+    if not ACI_SavedVars.disableEventHook then
+        ACI.InstallEventHook()
+    end
     ACI.svHookInstalled = ACI.InstallSVHooks()
 
     -- Store live references in SV

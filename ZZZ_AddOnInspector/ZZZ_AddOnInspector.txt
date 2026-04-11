@@ -2,7 +2,7 @@
 ## Author: Ricci Curvature
 ## APIVersion: 101049 101050
 ## AddOnVersion: 1
-## Version: 0.3.0
+## Version: 0.3.1
 ## IsLibrary: false
 ## SavedVariables: ACI_SavedVars
 ## Description: Diagnose addon conflicts, dependency issues, SavedVariables collisions, and event hot paths. Type /aci health for a one-line environment diagnosis.

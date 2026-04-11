@@ -32,6 +32,12 @@ function ACI.RegisterCommands()
             ACI.PrintHotPaths("regs")
         elseif args == "health" then
             ACI.PrintHealth()
+        elseif args == "hooks" then
+            ACI.PrintHookState()
+        elseif args == "hooks off" then
+            ACI.SetEventHookEnabled(false)
+        elseif args == "hooks on" then
+            ACI.SetEventHookEnabled(true)
         elseif args == "save" then
             ACI.ForceSave()
         elseif args == "debug" then
@@ -786,6 +792,42 @@ function ACI.PrintHelp()
     d(L("HELP_HEALTH"))
     d(L("HELP_SV"))
     d(L("HELP_SAVE"))
+    d("/aci hooks         - 이벤트 후크 상태 확인 / on / off (충돌 회피용)")
     d(L("HELP_HELP"))
     d(L("SEPARATOR"))
+end
+
+----------------------------------------------------------------------
+-- /aci hooks — event hook escape hatch
+--
+-- ACI's RegisterForEvent prehook can crash ESO natively when certain
+-- other addons are loaded (PortToFriendsHouse on ESO live 11.3.5 was
+-- the first confirmed case). v0.3.1 mitigated the known case via
+-- debug.getinfo, but unknown conflicts may still appear. This SV
+-- toggle lets users disable the hook without editing files.
+--
+-- Reload required for the change to take effect; the hook is
+-- installed at EVENT_ADD_ON_LOADED time.
+----------------------------------------------------------------------
+function ACI.PrintHookState()
+    local disabled = ACI_SavedVars and ACI_SavedVars.disableEventHook
+    if disabled then
+        d("|cFFFF00[ACI]|r 이벤트 후크: |cFF6666OFF|r (충돌 회피 모드)")
+        d("|cCCCCCC다시 켜려면: /aci hooks on (그 후 게임 재시작)|r")
+    else
+        d("|cFFFF00[ACI]|r 이벤트 후크: |c66FF66ON|r")
+        d("|cCCCCCC끄려면: /aci hooks off (그 후 게임 재시작)|r")
+        d("|cCCCCCC특정 애드온과 충돌해서 게임이 크러시할 때만 사용하세요.|r")
+    end
+end
+
+function ACI.SetEventHookEnabled(enabled)
+    ACI_SavedVars = ACI_SavedVars or {}
+    ACI_SavedVars.disableEventHook = not enabled
+    if enabled then
+        d("|cFFFF00[ACI]|r 이벤트 후크 ON으로 설정됨. |cCCCCCC게임 재시작 후 적용됩니다.|r")
+    else
+        d("|cFFFF00[ACI]|r 이벤트 후크 OFF로 설정됨. |cCCCCCC게임 재시작 후 적용됩니다.|r")
+        d("|cCCCCCC참고: /reloadui로는 반영되지 않음. ESO 완전 종료 후 재시작 필요.|r")
+    end
 end
