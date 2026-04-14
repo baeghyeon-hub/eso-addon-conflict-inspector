@@ -4,9 +4,6 @@ _dump_verified.md
 _embedded_debug_report.md
 _havok_string_test.md
 
-# Claude Code project config
-.claude/
-
 # Blog drafts (published separately on web)
 docs/blog-post-*.md
 
